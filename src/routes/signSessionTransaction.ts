@@ -23,6 +23,7 @@ export function signSessionRouter(args: {
         requestId: req.requestId,
         details: {
           accountAddress: parsed.accountAddress,
+          keyId: parsed.keyId,
           calls: parsed.calls.length,
           validUntil: parsed.validUntil,
           requester: parsed.context?.requester,

@@ -9,6 +9,7 @@ Hardened signer service for Starknet agent session keys.
 - Nonce replay protection with TTL
 - `validUntil` max-window enforcement
 - Chain-id allowlisting
+- Optional multi-key routing via `keyId` (backward compatible default key)
 - Selector denylist + session self-call block
 - Structured JSON audit logs
 
@@ -24,6 +25,8 @@ npm run dev
 
 - `GET /health` (no auth)
 - `POST /v1/sign/session-transaction` (HMAC auth)
+  - Optional request field: `keyId`
+  - If omitted, proxy uses `KEYRING_DEFAULT_KEY_ID`
 
 See `docs/api-spec.yaml` for request/response schema.
 

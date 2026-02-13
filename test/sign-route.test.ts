@@ -1,5 +1,6 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
+import { ec } from "starknet";
 import { createApp } from "../src/app.js";
 import { buildSigningPayload, computeHmacHex } from "../src/auth/hmac.js";
 import type { AppConfig } from "../src/config.js";
@@ -13,8 +14,19 @@ const baseConfig: AppConfig = {
   KEYRING_NONCE_TTL_MS: 120_000,
   KEYRING_MAX_VALIDITY_WINDOW_SEC: 24 * 60 * 60,
   KEYRING_ALLOWED_CHAIN_IDS: [],
-  SESSION_PRIVATE_KEY: "0x1",
-  SESSION_PUBLIC_KEY: undefined,
+  KEYRING_DEFAULT_KEY_ID: "default",
+  SIGNING_KEYS: [
+    {
+      keyId: "default",
+      privateKey: "0x1",
+      publicKey: undefined,
+    },
+    {
+      keyId: "ops",
+      privateKey: "0x2",
+      publicKey: undefined,
+    },
+  ],
 };
 
 const validBody = {
@@ -69,6 +81,41 @@ describe("sign route", () => {
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.signature)).toBe(true);
     expect(res.body.signature.length).toBe(4);
+    expect(res.body.sessionPublicKey).toBe(ec.starkCurve.getStarkKey("0x1"));
+  });
+
+  it("supports explicit keyId while keeping same endpoint", async () => {
+    const app = createApp(baseConfig);
+    const body = {
+      ...validBody,
+      keyId: "ops",
+    };
+    const bodyRaw = JSON.stringify(body);
+
+    const res = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, "nonce-key-ops"))
+      .send(bodyRaw);
+
+    expect(res.status).toBe(200);
+    expect(res.body.sessionPublicKey).toBe(ec.starkCurve.getStarkKey("0x2"));
+  });
+
+  it("rejects unknown keyId", async () => {
+    const app = createApp(baseConfig);
+    const body = {
+      ...validBody,
+      keyId: "does-not-exist",
+    };
+    const bodyRaw = JSON.stringify(body);
+
+    const res = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, "nonce-key-missing"))
+      .send(bodyRaw);
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("keyId");
   });
 
   it("rejects replayed nonce", async () => {

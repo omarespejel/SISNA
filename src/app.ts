@@ -19,12 +19,12 @@ export function createApp(config: AppConfig) {
   const nonceStore = new InMemoryNonceStore(config.KEYRING_NONCE_TTL_MS);
   const allowedChainIds = new Set(config.KEYRING_ALLOWED_CHAIN_IDS.map(normalizeFelt));
   const signer = new SessionTransactionSigner(
-    config.SESSION_PRIVATE_KEY,
+    config.SIGNING_KEYS,
+    config.KEYRING_DEFAULT_KEY_ID,
     {
       maxValidityWindowSec: config.KEYRING_MAX_VALIDITY_WINDOW_SEC,
       allowedChainIds,
     },
-    config.SESSION_PUBLIC_KEY,
   );
 
   app.use(

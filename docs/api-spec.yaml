@@ -40,6 +40,9 @@ paths:
               properties:
                 accountAddress:
                   type: string
+                keyId:
+                  type: string
+                  description: Optional signer key id. If omitted, server default key is used.
                 chainId:
                   type: string
                 nonce:

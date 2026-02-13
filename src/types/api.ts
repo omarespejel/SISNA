@@ -8,6 +8,7 @@ export const CallSchema = z.object({
 
 export const SignSessionTransactionRequestSchema = z.object({
   accountAddress: z.string().startsWith("0x"),
+  keyId: z.string().min(1).optional(),
   chainId: z.string().startsWith("0x").or(z.string().regex(/^\d+$/)),
   nonce: z.string().startsWith("0x").or(z.string().regex(/^\d+$/)),
   validUntil: z.number().int().positive(),
