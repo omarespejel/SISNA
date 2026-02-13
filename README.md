@@ -6,6 +6,7 @@ Hardened signer service for Starknet agent session keys.
 
 - Session transaction signing endpoint (`/v1/sign/session-transaction`)
 - HMAC request authentication
+- Per-client authorization (`client -> allowed keyIds`)
 - Nonce replay protection with TTL
 - `validUntil` max-window enforcement
 - Chain-id allowlisting
@@ -53,10 +54,30 @@ KEYRING_REDIS_URL=redis://localhost:6379
 KEYRING_REDIS_NONCE_PREFIX=starknet-keyring-proxy:nonce:
 ```
 
+## Client AuthZ
+
+Two modes are supported:
+
+1. Backward-compatible single client:
+- set `KEYRING_HMAC_SECRET`
+- optional `KEYRING_DEFAULT_AUTH_CLIENT_ID` (defaults to `default`)
+
+2. Multi-client (recommended):
+- set `KEYRING_AUTH_CLIENTS_JSON`
+- each client can have its own `hmacSecret` and `allowedKeyIds`
+
+Example:
+
+```bash
+KEYRING_DEFAULT_AUTH_CLIENT_ID=mcp-default
+KEYRING_AUTH_CLIENTS_JSON=[{"clientId":"mcp-default","hmacSecret":"0123456789abcdef0123456789abcdef","allowedKeyIds":["default"]},{"clientId":"mcp-ops","hmacSecret":"abcdef0123456789abcdef0123456789","allowedKeyIds":["ops"]}]
+```
+
 ## API
 
 - `GET /health` (no auth)
 - `POST /v1/sign/session-transaction` (HMAC auth)
+  - Optional auth header: `X-Keyring-Client-Id` (defaults to configured default client)
   - Optional request field: `keyId`
   - If omitted, proxy uses `KEYRING_DEFAULT_KEY_ID`
 

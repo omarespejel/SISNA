@@ -12,13 +12,16 @@ export type SignatureResult = {
 export class SessionTransactionSigner {
   readonly defaultKeyId: string;
   private readonly signingKeysById: Map<string, { privateKey: string; sessionPublicKey: string }>;
+  private readonly allowedKeyIdsByClient: Map<string, Set<string> | undefined>;
 
   constructor(
     signingKeys: SigningKeyConfig[],
     defaultKeyId: string,
+    allowedKeyIdsByClient: Map<string, Set<string> | undefined>,
     private readonly signingPolicy: SigningPolicyConfig,
   ) {
     this.defaultKeyId = defaultKeyId;
+    this.allowedKeyIdsByClient = allowedKeyIdsByClient;
     this.signingKeysById = new Map();
 
     for (const key of signingKeys) {
@@ -37,9 +40,13 @@ export class SessionTransactionSigner {
     }
   }
 
-  sign(req: SignSessionTransactionRequest): SignatureResult {
+  sign(req: SignSessionTransactionRequest, clientId: string): SignatureResult {
     assertSigningPolicy(req, this.signingPolicy);
     const requestedKeyId = req.keyId ?? this.defaultKeyId;
+    const allowedKeyIds = this.allowedKeyIdsByClient.get(clientId);
+    if (allowedKeyIds && !allowedKeyIds.has(requestedKeyId)) {
+      throw new PolicyError(`client ${clientId} is not allowed to use keyId ${requestedKeyId}`);
+    }
     const key = this.signingKeysById.get(requestedKeyId);
     if (!key) {
       throw new PolicyError(`Unknown keyId: ${requestedKeyId}`);

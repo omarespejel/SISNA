@@ -15,7 +15,8 @@ export function signSessionRouter(args: {
   router.post("/v1/sign/session-transaction", (req: RequestWithContext, res) => {
     try {
       const parsed = SignSessionTransactionRequestSchema.parse(req.body);
-      const result = args.signer.sign(parsed);
+      const clientId = req.authContext?.clientId ?? "unknown";
+      const result = args.signer.sign(parsed, clientId);
 
       args.logger.log({
         level: "info",
@@ -28,6 +29,7 @@ export function signSessionRouter(args: {
           validUntil: parsed.validUntil,
           requester: parsed.context?.requester,
           tool: parsed.context?.tool,
+          clientId,
         },
       });
 

@@ -24,6 +24,12 @@ const SigningKeySchema = z.object({
   publicKey: z.string().startsWith("0x").optional(),
 });
 
+const AuthClientSchema = z.object({
+  clientId: z.string().min(1),
+  hmacSecret: z.string().min(16),
+  allowedKeyIds: z.array(z.string().min(1)).optional(),
+});
+
 const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(8545),
   HOST: z.string().default("127.0.0.1"),
@@ -33,7 +39,9 @@ const EnvSchema = z.object({
   KEYRING_TLS_CA_PATH: z.string().optional(),
   KEYRING_MTLS_REQUIRED: z.string().default("false").transform(parseBoolean),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
-  KEYRING_HMAC_SECRET: z.string().min(16),
+  KEYRING_HMAC_SECRET: z.string().min(16).optional(),
+  KEYRING_DEFAULT_AUTH_CLIENT_ID: z.string().min(1).default("default"),
+  KEYRING_AUTH_CLIENTS_JSON: z.string().default(""),
   KEYRING_MAX_SKEW_MS: z.coerce.number().int().positive().default(30000),
   KEYRING_NONCE_TTL_MS: z.coerce.number().int().positive().default(120000),
   KEYRING_MAX_VALIDITY_WINDOW_SEC: z.coerce.number().int().positive().default(86400),
@@ -48,6 +56,7 @@ const EnvSchema = z.object({
 });
 
 export type SigningKeyConfig = z.infer<typeof SigningKeySchema>;
+export type AuthClientConfig = z.infer<typeof AuthClientSchema>;
 
 export type AppConfig = {
   PORT: number;
@@ -58,7 +67,8 @@ export type AppConfig = {
   KEYRING_TLS_CA_PATH?: string;
   KEYRING_MTLS_REQUIRED: boolean;
   LOG_LEVEL: "debug" | "info" | "warn" | "error";
-  KEYRING_HMAC_SECRET: string;
+  KEYRING_DEFAULT_AUTH_CLIENT_ID: string;
+  AUTH_CLIENTS: AuthClientConfig[];
   KEYRING_MAX_SKEW_MS: number;
   KEYRING_NONCE_TTL_MS: number;
   KEYRING_MAX_VALIDITY_WINDOW_SEC: number;
@@ -88,9 +98,27 @@ function parseSigningKeysJson(raw: string): SigningKeyConfig[] | undefined {
   return asArray;
 }
 
+function parseAuthClientsJson(raw: string): AuthClientConfig[] | undefined {
+  if (!raw.trim()) {
+    return undefined;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(
+      `KEYRING_AUTH_CLIENTS_JSON is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  return z.array(AuthClientSchema).min(1).parse(parsed);
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = EnvSchema.parse(env);
   const fromJson = parseSigningKeysJson(parsed.KEYRING_SIGNING_KEYS_JSON);
+  const authClientsFromJson = parseAuthClientsJson(parsed.KEYRING_AUTH_CLIENTS_JSON);
 
   const signingKeys = fromJson ?? (
     parsed.SESSION_PRIVATE_KEY
@@ -110,6 +138,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     );
   }
 
+  const authClients = authClientsFromJson ?? (
+    parsed.KEYRING_HMAC_SECRET
+      ? [
+          {
+            clientId: parsed.KEYRING_DEFAULT_AUTH_CLIENT_ID,
+            hmacSecret: parsed.KEYRING_HMAC_SECRET,
+            allowedKeyIds: undefined,
+          },
+        ]
+      : undefined
+  );
+
+  if (!authClients) {
+    throw new Error(
+      "No auth clients configured. Set KEYRING_HMAC_SECRET or KEYRING_AUTH_CLIENTS_JSON.",
+    );
+  }
+
   const keyIds = new Set<string>();
   for (const key of signingKeys) {
     if (keyIds.has(key.keyId)) {
@@ -120,6 +166,27 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (!keyIds.has(parsed.KEYRING_DEFAULT_KEY_ID)) {
     throw new Error(
       `KEYRING_DEFAULT_KEY_ID (${parsed.KEYRING_DEFAULT_KEY_ID}) not present in signing keys`,
+    );
+  }
+
+  const clientIds = new Set<string>();
+  for (const client of authClients) {
+    if (clientIds.has(client.clientId)) {
+      throw new Error(`Duplicate auth client id: ${client.clientId}`);
+    }
+    clientIds.add(client.clientId);
+    if (client.allowedKeyIds) {
+      for (const keyId of client.allowedKeyIds) {
+        if (!keyIds.has(keyId)) {
+          throw new Error(`Client ${client.clientId} references unknown keyId: ${keyId}`);
+        }
+      }
+    }
+  }
+
+  if (!clientIds.has(parsed.KEYRING_DEFAULT_AUTH_CLIENT_ID)) {
+    throw new Error(
+      `KEYRING_DEFAULT_AUTH_CLIENT_ID (${parsed.KEYRING_DEFAULT_AUTH_CLIENT_ID}) not present in auth clients`,
     );
   }
 
@@ -153,7 +220,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     KEYRING_TLS_CA_PATH: parsed.KEYRING_TLS_CA_PATH,
     KEYRING_MTLS_REQUIRED: parsed.KEYRING_MTLS_REQUIRED,
     LOG_LEVEL: parsed.LOG_LEVEL,
-    KEYRING_HMAC_SECRET: parsed.KEYRING_HMAC_SECRET,
+    KEYRING_DEFAULT_AUTH_CLIENT_ID: parsed.KEYRING_DEFAULT_AUTH_CLIENT_ID,
+    AUTH_CLIENTS: authClients,
     KEYRING_MAX_SKEW_MS: parsed.KEYRING_MAX_SKEW_MS,
     KEYRING_NONCE_TTL_MS: parsed.KEYRING_NONCE_TTL_MS,
     KEYRING_MAX_VALIDITY_WINDOW_SEC: parsed.KEYRING_MAX_VALIDITY_WINDOW_SEC,

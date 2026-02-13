@@ -50,10 +50,18 @@ export function createApp(config: AppConfig) {
   const app = express();
   const logger = new AuditLogger(config.LOG_LEVEL);
   const nonceStore = createNonceStore(config, logger);
+  const clientSecrets = new Map(config.AUTH_CLIENTS.map((client) => [client.clientId, client.hmacSecret]));
+  const allowedKeyIdsByClient = new Map(
+    config.AUTH_CLIENTS.map((client) => [
+      client.clientId,
+      client.allowedKeyIds ? new Set(client.allowedKeyIds) : undefined,
+    ]),
+  );
   const allowedChainIds = new Set(config.KEYRING_ALLOWED_CHAIN_IDS.map(normalizeFelt));
   const signer = new SessionTransactionSigner(
     config.SIGNING_KEYS,
     config.KEYRING_DEFAULT_KEY_ID,
+    allowedKeyIdsByClient,
     {
       maxValidityWindowSec: config.KEYRING_MAX_VALIDITY_WINDOW_SEC,
       allowedChainIds,
@@ -78,7 +86,8 @@ export function createApp(config: AppConfig) {
 
   app.use(
     createHmacMiddleware({
-      secret: config.KEYRING_HMAC_SECRET,
+      defaultClientId: config.KEYRING_DEFAULT_AUTH_CLIENT_ID,
+      clientSecrets,
       maxSkewMs: config.KEYRING_MAX_SKEW_MS,
       nonceStore,
       logger,

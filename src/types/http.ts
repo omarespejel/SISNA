@@ -3,6 +3,7 @@ import type { Request } from "express";
 export type AuthContext = {
   nonce: string;
   timestamp: number;
+  clientId: string;
 };
 
 export type RequestWithContext = Request & {

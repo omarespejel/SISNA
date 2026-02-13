@@ -22,6 +22,7 @@ paths:
       summary: Sign a Starknet session transaction payload
       description: |
         Requires HMAC headers:
+        - X-Keyring-Client-Id (optional, defaults to server-configured default)
         - X-Keyring-Timestamp
         - X-Keyring-Nonce
         - X-Keyring-Signature

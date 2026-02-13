@@ -7,9 +7,11 @@ import type { AuditLogger } from "../audit/logger.js";
 const TS_HEADER = "x-keyring-timestamp";
 const NONCE_HEADER = "x-keyring-nonce";
 const SIG_HEADER = "x-keyring-signature";
+const CLIENT_HEADER = "x-keyring-client-id";
 
 export function createHmacMiddleware(args: {
-  secret: string;
+  defaultClientId: string;
+  clientSecrets: Map<string, string>;
   maxSkewMs: number;
   nonceStore: NonceStore;
   logger: AuditLogger;
@@ -18,6 +20,7 @@ export function createHmacMiddleware(args: {
     const tsRaw = req.header(TS_HEADER);
     const nonce = req.header(NONCE_HEADER);
     const sig = req.header(SIG_HEADER);
+    const clientId = req.header(CLIENT_HEADER) ?? args.defaultClientId;
 
     if (!tsRaw || !nonce || !sig) {
       args.logger.log({
@@ -26,6 +29,18 @@ export function createHmacMiddleware(args: {
         requestId: req.requestId,
       });
       res.status(401).json({ error: "missing authentication headers" });
+      return;
+    }
+
+    const secret = args.clientSecrets.get(clientId);
+    if (!secret) {
+      args.logger.log({
+        level: "warn",
+        event: "auth.unknown_client",
+        requestId: req.requestId,
+        details: { clientId },
+      });
+      res.status(401).json({ error: "unknown client id" });
       return;
     }
 
@@ -80,7 +95,7 @@ export function createHmacMiddleware(args: {
       path: req.originalUrl,
       rawBody,
     });
-    const expected = computeHmacHex(args.secret, payload);
+    const expected = computeHmacHex(secret, payload);
 
     if (!secureHexEqual(sig, expected)) {
       args.logger.log({
@@ -92,7 +107,7 @@ export function createHmacMiddleware(args: {
       return;
     }
 
-    req.authContext = { nonce, timestamp: ts };
+    req.authContext = { nonce, timestamp: ts, clientId };
     next();
   };
 }

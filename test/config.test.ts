@@ -17,6 +17,9 @@ describe("config loading", () => {
     expect(cfg.SIGNING_KEYS.length).toBe(1);
     expect(cfg.SIGNING_KEYS[0]?.keyId).toBe("default");
     expect(cfg.KEYRING_DEFAULT_KEY_ID).toBe("default");
+    expect(cfg.KEYRING_DEFAULT_AUTH_CLIENT_ID).toBe("default");
+    expect(cfg.AUTH_CLIENTS.length).toBe(1);
+    expect(cfg.AUTH_CLIENTS[0]?.clientId).toBe("default");
     expect(cfg.KEYRING_REPLAY_STORE).toBe("memory");
   });
 
@@ -30,6 +33,19 @@ describe("config loading", () => {
 
     expect(cfg.SIGNING_KEYS.length).toBe(2);
     expect(cfg.KEYRING_DEFAULT_KEY_ID).toBe("ops");
+  });
+
+  it("supports explicit auth clients json config", () => {
+    const cfg = loadConfig({
+      ...baseEnv(),
+      SESSION_PRIVATE_KEY: "0x1",
+      KEYRING_DEFAULT_AUTH_CLIENT_ID: "mcp-ops",
+      KEYRING_AUTH_CLIENTS_JSON:
+        '[{"clientId":"mcp-default","hmacSecret":"0123456789abcdef0123456789abcdef","allowedKeyIds":["default"]},{"clientId":"mcp-ops","hmacSecret":"abcdef0123456789abcdef0123456789"}]',
+    });
+
+    expect(cfg.AUTH_CLIENTS.length).toBe(2);
+    expect(cfg.KEYRING_DEFAULT_AUTH_CLIENT_ID).toBe("mcp-ops");
   });
 
   it("rejects duplicate key ids", () => {
@@ -123,5 +139,35 @@ describe("config loading", () => {
     expect(cfg.KEYRING_TRANSPORT).toBe("https");
     expect(cfg.KEYRING_MTLS_REQUIRED).toBe(true);
     expect(cfg.KEYRING_TLS_CA_PATH).toBe("/tmp/ca.crt");
+  });
+
+  it("requires auth config via keyring secret or auth clients json", () => {
+    expect(() =>
+      loadConfig({
+        SESSION_PRIVATE_KEY: "0x1",
+      }),
+    ).toThrow(/No auth clients configured/i);
+  });
+
+  it("rejects duplicate auth client ids", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_AUTH_CLIENTS_JSON:
+          '[{"clientId":"a","hmacSecret":"0123456789abcdef0123456789abcdef"},{"clientId":"a","hmacSecret":"abcdef0123456789abcdef0123456789"}]',
+      }),
+    ).toThrow(/Duplicate auth client id/i);
+  });
+
+  it("rejects auth clients referencing unknown keyId", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_AUTH_CLIENTS_JSON:
+          '[{"clientId":"a","hmacSecret":"0123456789abcdef0123456789abcdef","allowedKeyIds":["ops"]}]',
+      }),
+    ).toThrow(/unknown keyId/i);
   });
 });

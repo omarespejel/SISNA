@@ -8,8 +8,22 @@ import type { AppConfig } from "../src/config.js";
 const baseConfig: AppConfig = {
   PORT: 8545,
   HOST: "127.0.0.1",
+  KEYRING_TRANSPORT: "http",
+  KEYRING_MTLS_REQUIRED: false,
   LOG_LEVEL: "error",
-  KEYRING_HMAC_SECRET: "0123456789abcdef0123456789abcdef",
+  KEYRING_DEFAULT_AUTH_CLIENT_ID: "mcp-default",
+  AUTH_CLIENTS: [
+    {
+      clientId: "mcp-default",
+      hmacSecret: "0123456789abcdef0123456789abcdef",
+      allowedKeyIds: ["default"],
+    },
+    {
+      clientId: "mcp-ops",
+      hmacSecret: "abcdef0123456789abcdef0123456789",
+      allowedKeyIds: ["ops"],
+    },
+  ],
   KEYRING_MAX_SKEW_MS: 60_000,
   KEYRING_NONCE_TTL_MS: 120_000,
   KEYRING_MAX_VALIDITY_WINDOW_SEC: 24 * 60 * 60,
@@ -45,18 +59,28 @@ const validBody = {
   ],
 };
 
-function authHeaders(bodyRaw: string, nonce: string, timestamp = Date.now()) {
+function authHeaders(
+  bodyRaw: string,
+  nonce: string,
+  opts?: { timestamp?: number; clientId?: string; secret?: string },
+) {
+  const timestamp = opts?.timestamp ?? Date.now();
+  const clientId = opts?.clientId ?? baseConfig.KEYRING_DEFAULT_AUTH_CLIENT_ID;
+  const clientSecret = opts?.secret
+    ?? baseConfig.AUTH_CLIENTS.find((client) => client.clientId === clientId)?.hmacSecret
+    ?? "";
   const ts = String(timestamp);
   const payload = buildSigningPayload({
     timestamp: ts,
     nonce,
     method: "POST",
-    path: "/v1/sign/session-transaction",
-    rawBody: bodyRaw,
+      path: "/v1/sign/session-transaction",
+      rawBody: bodyRaw,
   });
-  const signature = computeHmacHex(baseConfig.KEYRING_HMAC_SECRET, payload);
+  const signature = computeHmacHex(clientSecret, payload);
 
   return {
+    "x-keyring-client-id": clientId,
     "x-keyring-timestamp": ts,
     "x-keyring-nonce": nonce,
     "x-keyring-signature": signature,
@@ -96,7 +120,7 @@ describe("sign route", () => {
 
     const res = await request(app)
       .post("/v1/sign/session-transaction")
-      .set(authHeaders(bodyRaw, "nonce-key-ops"))
+      .set(authHeaders(bodyRaw, "nonce-key-ops", { clientId: "mcp-ops" }))
       .send(bodyRaw);
 
     expect(res.status).toBe(200);
@@ -118,6 +142,39 @@ describe("sign route", () => {
 
     expect(res.status).toBe(422);
     expect(res.body.error).toContain("keyId");
+  });
+
+  it("rejects unknown client id", async () => {
+    const app = createApp(baseConfig);
+    const bodyRaw = JSON.stringify(validBody);
+
+    const res = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, "nonce-unknown-client", {
+        clientId: "ghost-client",
+        secret: "0123456789abcdef0123456789abcdef",
+      }))
+      .send(bodyRaw);
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toContain("unknown client");
+  });
+
+  it("rejects client using unauthorized keyId", async () => {
+    const app = createApp(baseConfig);
+    const body = {
+      ...validBody,
+      keyId: "ops",
+    };
+    const bodyRaw = JSON.stringify(body);
+
+    const res = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, "nonce-key-forbidden", { clientId: "mcp-default" }))
+      .send(bodyRaw);
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("not allowed");
   });
 
   it("rejects replayed nonce", async () => {
@@ -146,7 +203,7 @@ describe("sign route", () => {
 
     const res = await request(app)
       .post("/v1/sign/session-transaction")
-      .set(authHeaders(bodyRaw, "nonce-old-ts", oldTs))
+      .set(authHeaders(bodyRaw, "nonce-old-ts", { timestamp: oldTs }))
       .send(bodyRaw);
 
     expect(res.status).toBe(401);
