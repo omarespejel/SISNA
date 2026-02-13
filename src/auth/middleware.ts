@@ -63,7 +63,7 @@ export function createHmacMiddleware(args: {
       timestamp: tsRaw,
       nonce,
       method: req.method,
-      path: req.path,
+      path: req.originalUrl,
       rawBody,
     });
     const expected = computeHmacHex(args.secret, payload);

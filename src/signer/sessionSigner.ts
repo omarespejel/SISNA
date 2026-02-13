@@ -1,6 +1,6 @@
 import { ec, hash, num } from "starknet";
 import type { SignSessionTransactionRequest } from "../types/api.js";
-import { assertSigningPolicy } from "./policy.js";
+import { assertSigningPolicy, type SigningPolicyConfig } from "./policy.js";
 
 export type SignatureResult = {
   sessionPublicKey: string;
@@ -13,6 +13,7 @@ export class SessionTransactionSigner {
 
   constructor(
     private readonly privateKey: string,
+    private readonly signingPolicy: SigningPolicyConfig,
     expectedPublicKey?: string,
   ) {
     this.sessionPublicKey = ec.starkCurve.getStarkKey(privateKey);
@@ -23,7 +24,7 @@ export class SessionTransactionSigner {
   }
 
   sign(req: SignSessionTransactionRequest): SignatureResult {
-    assertSigningPolicy(req);
+    assertSigningPolicy(req, this.signingPolicy);
 
     const hashData: bigint[] = [
       BigInt(req.accountAddress),

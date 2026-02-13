@@ -9,11 +9,23 @@ import { healthRouter } from "./routes/health.js";
 import { signSessionRouter } from "./routes/signSessionTransaction.js";
 import type { RequestWithContext } from "./types/http.js";
 
+function normalizeFelt(value: string): string {
+  return `0x${BigInt(value).toString(16)}`.toLowerCase();
+}
+
 export function createApp(config: AppConfig) {
   const app = express();
   const logger = new AuditLogger(config.LOG_LEVEL);
   const nonceStore = new InMemoryNonceStore(config.KEYRING_NONCE_TTL_MS);
-  const signer = new SessionTransactionSigner(config.SESSION_PRIVATE_KEY, config.SESSION_PUBLIC_KEY);
+  const allowedChainIds = new Set(config.KEYRING_ALLOWED_CHAIN_IDS.map(normalizeFelt));
+  const signer = new SessionTransactionSigner(
+    config.SESSION_PRIVATE_KEY,
+    {
+      maxValidityWindowSec: config.KEYRING_MAX_VALIDITY_WINDOW_SEC,
+      allowedChainIds,
+    },
+    config.SESSION_PUBLIC_KEY,
+  );
 
   app.use(
     express.json({

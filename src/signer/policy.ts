@@ -30,10 +30,32 @@ export class PolicyError extends Error {
   }
 }
 
-export function assertSigningPolicy(req: SignSessionTransactionRequest): void {
+export type SigningPolicyConfig = {
+  maxValidityWindowSec: number;
+  allowedChainIds: Set<string>;
+};
+
+function normalizeFelt(value: string): string {
+  return `0x${BigInt(value).toString(16)}`.toLowerCase();
+}
+
+export function assertSigningPolicy(
+  req: SignSessionTransactionRequest,
+  policy: SigningPolicyConfig,
+): void {
   const nowSec = Math.floor(Date.now() / 1000);
   if (req.validUntil <= nowSec) {
     throw new PolicyError("validUntil is already expired");
+  }
+  if (req.validUntil > nowSec + policy.maxValidityWindowSec) {
+    throw new PolicyError("validUntil exceeds maximum allowed future window");
+  }
+
+  if (policy.allowedChainIds.size > 0) {
+    const chainId = normalizeFelt(req.chainId);
+    if (!policy.allowedChainIds.has(chainId)) {
+      throw new PolicyError(`chainId ${req.chainId} is not allowed`);
+    }
   }
 
   for (const call of req.calls) {

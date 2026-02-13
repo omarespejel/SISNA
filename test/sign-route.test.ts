@@ -11,6 +11,8 @@ const baseConfig: AppConfig = {
   KEYRING_HMAC_SECRET: "0123456789abcdef0123456789abcdef",
   KEYRING_MAX_SKEW_MS: 60_000,
   KEYRING_NONCE_TTL_MS: 120_000,
+  KEYRING_MAX_VALIDITY_WINDOW_SEC: 24 * 60 * 60,
+  KEYRING_ALLOWED_CHAIN_IDS: [],
   SESSION_PRIVATE_KEY: "0x1",
   SESSION_PUBLIC_KEY: undefined,
 };
@@ -163,5 +165,42 @@ describe("sign route", () => {
 
     expect(res.status).toBe(422);
     expect(res.body.error).toContain("validUntil");
+  });
+
+  it("rejects validUntil too far in the future", async () => {
+    const app = createApp(baseConfig);
+    const body = {
+      ...validBody,
+      validUntil: Math.floor(Date.now() / 1000) + (25 * 60 * 60),
+    };
+    const bodyRaw = JSON.stringify(body);
+
+    const res = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, "nonce-too-far-vu"))
+      .send(bodyRaw);
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("exceeds maximum");
+  });
+
+  it("rejects disallowed chain id when allowlist is configured", async () => {
+    const app = createApp({
+      ...baseConfig,
+      KEYRING_ALLOWED_CHAIN_IDS: ["0x534e5f4d41494e"],
+    });
+    const body = {
+      ...validBody,
+      chainId: "0x534e5f5345504f4c4941",
+    };
+    const bodyRaw = JSON.stringify(body);
+
+    const res = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, "nonce-bad-chain"))
+      .send(bodyRaw);
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("chainId");
   });
 });

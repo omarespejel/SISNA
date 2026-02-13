@@ -2,6 +2,12 @@ openapi: 3.1.0
 info:
   title: Starknet Keyring Proxy API
   version: 0.1.0
+components:
+  securitySchemes:
+    hmacHeaders:
+      type: apiKey
+      in: header
+      name: X-Keyring-Signature
 paths:
   /health:
     get:
@@ -17,6 +23,8 @@ paths:
         - X-Keyring-Timestamp
         - X-Keyring-Nonce
         - X-Keyring-Signature
+      security:
+        - hmacHeaders: []
       requestBody:
         required: true
         content:
@@ -58,4 +66,4 @@ paths:
         '401':
           description: Authentication failed
         '422':
-          description: Policy violation
+          description: Policy violation (self-call, denied selector, invalid chainId, or invalid validUntil)
