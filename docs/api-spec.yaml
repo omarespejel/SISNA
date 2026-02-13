@@ -1,0 +1,61 @@
+openapi: 3.1.0
+info:
+  title: Starknet Keyring Proxy API
+  version: 0.1.0
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+  /v1/sign/session-transaction:
+    post:
+      summary: Sign a Starknet session transaction payload
+      description: |
+        Requires HMAC headers:
+        - X-Keyring-Timestamp
+        - X-Keyring-Nonce
+        - X-Keyring-Signature
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - accountAddress
+                - chainId
+                - nonce
+                - validUntil
+                - calls
+              properties:
+                accountAddress:
+                  type: string
+                chainId:
+                  type: string
+                nonce:
+                  type: string
+                validUntil:
+                  type: integer
+                calls:
+                  type: array
+                  items:
+                    type: object
+                    required: [contractAddress, entrypoint, calldata]
+                    properties:
+                      contractAddress:
+                        type: string
+                      entrypoint:
+                        type: string
+                      calldata:
+                        type: array
+                        items:
+                          type: string
+      responses:
+        '200':
+          description: Signature produced
+        '401':
+          description: Authentication failed
+        '422':
+          description: Policy violation
