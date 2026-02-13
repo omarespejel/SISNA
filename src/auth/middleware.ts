@@ -14,7 +14,7 @@ export function createHmacMiddleware(args: {
   nonceStore: NonceStore;
   logger: AuditLogger;
 }) {
-  return function hmacMiddleware(req: RequestWithContext, res: Response, next: NextFunction): void {
+  return async function hmacMiddleware(req: RequestWithContext, res: Response, next: NextFunction): Promise<void> {
     const tsRaw = req.header(TS_HEADER);
     const nonce = req.header(NONCE_HEADER);
     const sig = req.header(SIG_HEADER);
@@ -47,14 +47,28 @@ export function createHmacMiddleware(args: {
       return;
     }
 
-    if (!args.nonceStore.consume(nonce, now)) {
+    try {
+      const nonceAccepted = await args.nonceStore.consume(nonce, now);
+      if (!nonceAccepted) {
+        args.logger.log({
+          level: "warn",
+          event: "auth.replay_nonce",
+          requestId: req.requestId,
+          details: { nonce },
+        });
+        res.status(401).json({ error: "replayed nonce" });
+        return;
+      }
+    } catch (err) {
       args.logger.log({
-        level: "warn",
-        event: "auth.replay_nonce",
+        level: "error",
+        event: "auth.replay_store_unavailable",
         requestId: req.requestId,
-        details: { nonce },
+        details: {
+          error: err instanceof Error ? err.message : String(err),
+        },
       });
-      res.status(401).json({ error: "replayed nonce" });
+      res.status(503).json({ error: "replay protection unavailable" });
       return;
     }
 

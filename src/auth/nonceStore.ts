@@ -1,5 +1,5 @@
 export interface NonceStore {
-  consume(nonce: string, nowMs: number): boolean;
+  consume(nonce: string, nowMs: number): boolean | Promise<boolean>;
 }
 
 export class InMemoryNonceStore implements NonceStore {

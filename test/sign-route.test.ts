@@ -14,6 +14,8 @@ const baseConfig: AppConfig = {
   KEYRING_NONCE_TTL_MS: 120_000,
   KEYRING_MAX_VALIDITY_WINDOW_SEC: 24 * 60 * 60,
   KEYRING_ALLOWED_CHAIN_IDS: [],
+  KEYRING_REPLAY_STORE: "memory",
+  KEYRING_REDIS_NONCE_PREFIX: "starknet-keyring-proxy:nonce:",
   KEYRING_DEFAULT_KEY_ID: "default",
   SIGNING_KEYS: [
     {

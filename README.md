@@ -21,6 +21,19 @@ npm install
 npm run dev
 ```
 
+## Replay Protection Modes
+
+- `memory` (default): single-instance replay protection (good for local/dev).
+- `redis`: distributed replay protection for multi-instance production deployments.
+
+When using Redis:
+
+```bash
+KEYRING_REPLAY_STORE=redis
+KEYRING_REDIS_URL=redis://localhost:6379
+KEYRING_REDIS_NONCE_PREFIX=starknet-keyring-proxy:nonce:
+```
+
 ## API
 
 - `GET /health` (no auth)
@@ -34,5 +47,6 @@ See `docs/api-spec.yaml` for request/response schema.
 
 - Private keys remain in this process only; clients submit unsigned payloads.
 - Requests require HMAC + nonce + timestamp.
+- Replay defense is one-time nonce consumption (`memory` or `redis` backend).
 - Requests are bounded by configured chain ids and `validUntil` horizon.
 - Signer rejects owner/admin-like selectors and self-target calls.

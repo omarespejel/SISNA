@@ -25,6 +25,9 @@ const EnvSchema = z.object({
   KEYRING_NONCE_TTL_MS: z.coerce.number().int().positive().default(120000),
   KEYRING_MAX_VALIDITY_WINDOW_SEC: z.coerce.number().int().positive().default(86400),
   KEYRING_ALLOWED_CHAIN_IDS: z.string().default("").transform(parseChainIds),
+  KEYRING_REPLAY_STORE: z.enum(["memory", "redis"]).default("memory"),
+  KEYRING_REDIS_URL: z.string().url().optional(),
+  KEYRING_REDIS_NONCE_PREFIX: z.string().default("starknet-keyring-proxy:nonce:"),
   KEYRING_DEFAULT_KEY_ID: z.string().min(1).default("default"),
   KEYRING_SIGNING_KEYS_JSON: z.string().default(""),
   SESSION_PRIVATE_KEY: z.string().startsWith("0x").optional(),
@@ -42,6 +45,9 @@ export type AppConfig = {
   KEYRING_NONCE_TTL_MS: number;
   KEYRING_MAX_VALIDITY_WINDOW_SEC: number;
   KEYRING_ALLOWED_CHAIN_IDS: string[];
+  KEYRING_REPLAY_STORE: "memory" | "redis";
+  KEYRING_REDIS_URL?: string;
+  KEYRING_REDIS_NONCE_PREFIX: string;
   KEYRING_DEFAULT_KEY_ID: string;
   SIGNING_KEYS: SigningKeyConfig[];
 };
@@ -99,6 +105,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     );
   }
 
+  if (parsed.KEYRING_REPLAY_STORE === "redis" && !parsed.KEYRING_REDIS_URL) {
+    throw new Error("KEYRING_REDIS_URL is required when KEYRING_REPLAY_STORE=redis");
+  }
+
   return {
     PORT: parsed.PORT,
     HOST: parsed.HOST,
@@ -108,6 +118,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     KEYRING_NONCE_TTL_MS: parsed.KEYRING_NONCE_TTL_MS,
     KEYRING_MAX_VALIDITY_WINDOW_SEC: parsed.KEYRING_MAX_VALIDITY_WINDOW_SEC,
     KEYRING_ALLOWED_CHAIN_IDS: parsed.KEYRING_ALLOWED_CHAIN_IDS,
+    KEYRING_REPLAY_STORE: parsed.KEYRING_REPLAY_STORE,
+    KEYRING_REDIS_URL: parsed.KEYRING_REDIS_URL,
+    KEYRING_REDIS_NONCE_PREFIX: parsed.KEYRING_REDIS_NONCE_PREFIX,
     KEYRING_DEFAULT_KEY_ID: parsed.KEYRING_DEFAULT_KEY_ID,
     SIGNING_KEYS: signingKeys,
   };

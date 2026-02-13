@@ -1,8 +1,11 @@
 import express from "express";
 import { randomUUID } from "node:crypto";
+import { Redis } from "ioredis";
 import type { AppConfig } from "./config.js";
 import { AuditLogger } from "./audit/logger.js";
 import { InMemoryNonceStore } from "./auth/nonceStore.js";
+import type { NonceStore } from "./auth/nonceStore.js";
+import { RedisNonceStore } from "./auth/redisNonceStore.js";
 import { createHmacMiddleware } from "./auth/middleware.js";
 import { SessionTransactionSigner } from "./signer/sessionSigner.js";
 import { healthRouter } from "./routes/health.js";
@@ -13,10 +16,40 @@ function normalizeFelt(value: string): string {
   return `0x${BigInt(value).toString(16)}`.toLowerCase();
 }
 
+function createNonceStore(config: AppConfig, logger: AuditLogger): NonceStore {
+  if (config.KEYRING_REPLAY_STORE === "redis") {
+    const redis = new Redis(config.KEYRING_REDIS_URL!, {
+      lazyConnect: false,
+      enableOfflineQueue: false,
+      maxRetriesPerRequest: 1,
+    });
+    redis.on("error", (err: Error) => {
+      logger.log({
+        level: "error",
+        event: "replay.redis_error",
+        details: { error: err.message },
+      });
+    });
+    logger.log({
+      level: "info",
+      event: "replay.store_selected",
+      details: { store: "redis", nonceTtlMs: config.KEYRING_NONCE_TTL_MS },
+    });
+    return new RedisNonceStore(redis, config.KEYRING_NONCE_TTL_MS, config.KEYRING_REDIS_NONCE_PREFIX);
+  }
+
+  logger.log({
+    level: "info",
+    event: "replay.store_selected",
+    details: { store: "memory", nonceTtlMs: config.KEYRING_NONCE_TTL_MS },
+  });
+  return new InMemoryNonceStore(config.KEYRING_NONCE_TTL_MS);
+}
+
 export function createApp(config: AppConfig) {
   const app = express();
   const logger = new AuditLogger(config.LOG_LEVEL);
-  const nonceStore = new InMemoryNonceStore(config.KEYRING_NONCE_TTL_MS);
+  const nonceStore = createNonceStore(config, logger);
   const allowedChainIds = new Set(config.KEYRING_ALLOWED_CHAIN_IDS.map(normalizeFelt));
   const signer = new SessionTransactionSigner(
     config.SIGNING_KEYS,
