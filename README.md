@@ -21,6 +21,25 @@ npm install
 npm run dev
 ```
 
+## Transport & mTLS
+
+- `KEYRING_TRANSPORT=http` (default) for local development.
+- `KEYRING_TRANSPORT=https` requires:
+  - `KEYRING_TLS_CERT_PATH`
+  - `KEYRING_TLS_KEY_PATH`
+- `KEYRING_MTLS_REQUIRED=true` additionally requires:
+  - `KEYRING_TLS_CA_PATH`
+
+Production recommendation:
+
+```bash
+KEYRING_TRANSPORT=https
+KEYRING_MTLS_REQUIRED=true
+KEYRING_TLS_CERT_PATH=./certs/server.crt
+KEYRING_TLS_KEY_PATH=./certs/server.key
+KEYRING_TLS_CA_PATH=./certs/ca.crt
+```
+
 ## Replay Protection Modes
 
 - `memory` (default): single-instance replay protection (good for local/dev).

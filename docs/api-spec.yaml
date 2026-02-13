@@ -8,6 +8,8 @@ components:
       type: apiKey
       in: header
       name: X-Keyring-Signature
+    mutualTLS:
+      type: mutualTLS
 paths:
   /health:
     get:
@@ -25,6 +27,7 @@ paths:
         - X-Keyring-Signature
       security:
         - hmacHeaders: []
+        - mutualTLS: []
       requestBody:
         required: true
         content:

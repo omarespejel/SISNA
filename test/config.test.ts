@@ -75,4 +75,53 @@ describe("config loading", () => {
     expect(cfg.KEYRING_REDIS_URL).toBe("redis://localhost:6379");
     expect(cfg.KEYRING_REDIS_NONCE_PREFIX).toBe("test:nonce:");
   });
+
+  it("requires tls cert and key when https transport is enabled", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_TRANSPORT: "https",
+      }),
+    ).toThrow(/KEYRING_TLS_CERT_PATH and KEYRING_TLS_KEY_PATH/i);
+  });
+
+  it("requires https transport when mtls is required", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_MTLS_REQUIRED: "true",
+      }),
+    ).toThrow(/requires KEYRING_TRANSPORT=https/i);
+  });
+
+  it("requires ca path when mtls is required", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_TRANSPORT: "https",
+        KEYRING_TLS_CERT_PATH: "/tmp/server.crt",
+        KEYRING_TLS_KEY_PATH: "/tmp/server.key",
+        KEYRING_MTLS_REQUIRED: "true",
+      }),
+    ).toThrow(/KEYRING_TLS_CA_PATH/i);
+  });
+
+  it("accepts mtls configuration", () => {
+    const cfg = loadConfig({
+      ...baseEnv(),
+      SESSION_PRIVATE_KEY: "0x1",
+      KEYRING_TRANSPORT: "https",
+      KEYRING_TLS_CERT_PATH: "/tmp/server.crt",
+      KEYRING_TLS_KEY_PATH: "/tmp/server.key",
+      KEYRING_TLS_CA_PATH: "/tmp/ca.crt",
+      KEYRING_MTLS_REQUIRED: "true",
+    });
+
+    expect(cfg.KEYRING_TRANSPORT).toBe("https");
+    expect(cfg.KEYRING_MTLS_REQUIRED).toBe(true);
+    expect(cfg.KEYRING_TLS_CA_PATH).toBe("/tmp/ca.crt");
+  });
 });
