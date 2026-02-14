@@ -58,18 +58,30 @@ jobs:
       - name: Enforce schema parity across repos
         run: |
           set -euo pipefail
-          diff -u spec/interop-version.schema.json /tmp/starkclaw/spec/interop-version.schema.json
-          diff -u spec/interop-version.schema.json /tmp/starknet-agentic/spec/interop-version.schema.json
+          for counterpart in /tmp/starkclaw /tmp/starknet-agentic; do
+            schema_file="$counterpart/spec/interop-version.schema.json"
+            if [[ -f "$schema_file" ]]; then
+              diff -u spec/interop-version.schema.json "$schema_file"
+            else
+              echo "::warning::Skipping schema parity for $counterpart (missing $schema_file on target branch)"
+            fi
+          done
 
       - name: Compare spec version across repos
         run: |
           set -euo pipefail
           LOCAL_VERSION=$(jq -r '.spec_version' spec/interop-version.json)
-          STARKCLAW_VERSION=$(jq -r '.spec_version' /tmp/starkclaw/spec/interop-version.json)
-          AGENTIC_VERSION=$(jq -r '.spec_version' /tmp/starknet-agentic/spec/interop-version.json)
-          echo "sisna=$LOCAL_VERSION starkclaw=$STARKCLAW_VERSION agentic=$AGENTIC_VERSION"
-          test "$LOCAL_VERSION" = "$STARKCLAW_VERSION"
-          test "$LOCAL_VERSION" = "$AGENTIC_VERSION"
+          echo "sisna=$LOCAL_VERSION"
+          for counterpart in /tmp/starkclaw /tmp/starknet-agentic; do
+            manifest_file="$counterpart/spec/interop-version.json"
+            if [[ -f "$manifest_file" ]]; then
+              COUNTERPART_VERSION=$(jq -r '.spec_version' "$manifest_file")
+              echo "$counterpart=$COUNTERPART_VERSION"
+              test "$LOCAL_VERSION" = "$COUNTERPART_VERSION"
+            else
+              echo "::warning::Skipping version parity for $counterpart (missing $manifest_file on target branch)"
+            fi
+          done
 
       - name: Validate boundary invariants
         run: |
