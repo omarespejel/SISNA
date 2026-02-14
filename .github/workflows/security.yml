@@ -1,0 +1,53 @@
+name: Security Gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  secret-scan:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          VERSION="8.30.0"
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          sudo mv gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Scan repository for secrets (working tree)
+        run: |
+          set -euo pipefail
+          gitleaks detect --source . --no-git --redact --exit-code 1
+
+  dependency-audit:
+    name: Dependency Audit Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate npm audit report
+        run: npm audit --omit=dev --json > audit-report.json || true
+
+      - name: Enforce audit allowlist policy
+        run: |
+          node scripts/security/audit-gate.mjs \
+            --report audit-report.json \
+            --allowlist security/audit-allowlist.json \
+            --failLevel moderate
