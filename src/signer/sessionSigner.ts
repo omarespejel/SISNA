@@ -86,13 +86,22 @@ export class SessionTransactionSigner {
     const messageHash = hash.computePoseidonHashOnElements(hashData.map((x) => num.toHex(x)));
     const rawSig = ec.starkCurve.sign(messageHash, key.privateKey);
 
+    // Enforce canonical s (s <= n/2) to prevent signature malleability.
+    // starknet.js defaults to lowS: false, so we normalize here.
+    const CURVE_ORDER = BigInt(
+      "3618502788666131213697322783095070105526743751716087489154079457884512865583",
+    );
+    const halfOrder = CURVE_ORDER >> 1n;
+    const s = BigInt(rawSig.s);
+    const canonicalS = s > halfOrder ? CURVE_ORDER - s : s;
+
     return {
       sessionPublicKey: key.sessionPublicKey,
       messageHash,
       signature: [
         key.sessionPublicKey,
         num.toHex(rawSig.r),
-        num.toHex(rawSig.s),
+        num.toHex(canonicalS),
         num.toHex(req.validUntil),
       ],
     };
