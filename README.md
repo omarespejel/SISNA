@@ -231,3 +231,5 @@ This is security-sensitive software.
 ## License
 
 MIT. See `LICENSE`.
+
+Validation: dependency-review live run check (2026-02-14).
