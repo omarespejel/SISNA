@@ -1,0 +1,19 @@
+{
+  "reviewProfile": "security-focused",
+  "focus": [
+    "security",
+    "cross-repo-compatibility",
+    "architecture"
+  ],
+  "patternRepositories": [
+    "keep-starknet-strange/starkclaw",
+    "keep-starknet-strange/starknet-agentic"
+  ],
+  "paths": {
+    "include": [
+      "src/**",
+      "docs/**",
+      ".github/workflows/**"
+    ]
+  }
+}
