@@ -1,6 +1,20 @@
-# starknet-keyring-proxy
+# SISNA Signer
 
-Hardened signer service for Starknet agent session keys.
+Hardened signer boundary for Starknet agent session keys.
+
+This repository is the signing service component of the SISNA stack (Sign In with Starknet Agent).
+
+## Scope
+
+What this service does:
+- Holds Starknet session signing keys outside the MCP/agent runtime
+- Signs session transactions via a hardened API boundary
+- Enforces auth/policy/replay controls before signing
+- Produces auditable signing events
+
+What this service does not do (yet):
+- Full SISNA auth flow (nonce challenge, verification receipts, full server auth protocol)
+- On-chain identity registry orchestration by itself
 
 ## Features
 
@@ -8,10 +22,12 @@ Hardened signer service for Starknet agent session keys.
 - HMAC request authentication
 - Per-client authorization (`client -> allowed keyIds`)
 - Nonce replay protection with TTL
+- Configurable rate limiting (memory or Redis)
 - `validUntil` max-window enforcement
 - Chain-id allowlisting
 - Optional multi-key routing via `keyId` (backward compatible default key)
 - Selector denylist + session self-call block
+- Inbound/outbound leak scanner (`block` or `warn`)
 - Structured JSON audit logs
 
 ## Development
@@ -21,6 +37,10 @@ cp .env.example .env
 npm install
 npm run dev
 ```
+
+`NODE_ENV=production` now enforces:
+- `KEYRING_TRANSPORT=https`
+- `KEYRING_MTLS_REQUIRED=true`
 
 ## Transport & mTLS
 
@@ -45,6 +65,7 @@ KEYRING_TLS_CA_PATH=./certs/ca.crt
 
 - `memory` (default): single-instance replay protection (good for local/dev).
 - `redis`: distributed replay protection for multi-instance production deployments.
+- Prefix defaults still use `starknet-keyring-proxy:*` for backward compatibility and can be overridden.
 
 When using Redis:
 
@@ -53,6 +74,42 @@ KEYRING_REPLAY_STORE=redis
 KEYRING_REDIS_URL=redis://localhost:6379
 KEYRING_REDIS_NONCE_PREFIX=starknet-keyring-proxy:nonce:
 ```
+
+## Rate Limiting
+
+Use rate limiting before production rollout.
+
+```bash
+KEYRING_RATE_LIMIT_ENABLED=true
+KEYRING_RATE_LIMIT_BACKEND=redis
+KEYRING_RATE_LIMIT_WINDOW_MS=60000
+KEYRING_RATE_LIMIT_MAX_REQUESTS=120
+KEYRING_REDIS_RATE_LIMIT_PREFIX=starknet-keyring-proxy:ratelimit:
+```
+
+Behavior:
+- Keyed by `clientId + accountAddress + keyId`
+- Exceeds budget returns `429`
+- Response includes `x-ratelimit-remaining` and `x-ratelimit-reset-ms`
+- Redis key prefix is configurable via `KEYRING_REDIS_RATE_LIMIT_PREFIX`
+
+## Leak Scanner
+
+Leak scanner detects common secret-exfiltration payloads at proxy boundary.
+
+```bash
+KEYRING_LEAK_SCANNER_ENABLED=true
+KEYRING_LEAK_SCANNER_ACTION=block
+```
+
+Actions:
+- `block`: fail request/response when patterns are detected
+- `warn`: log only
+
+Patterns include:
+- `STARKNET_PRIVATE_KEY`, `SESSION_PRIVATE_KEY`, `KEYRING_HMAC_SECRET`
+- JSON/kv private key fields
+- PEM private key markers
 
 ## Client AuthZ
 
@@ -90,3 +147,4 @@ See `docs/api-spec.yaml` for request/response schema.
 - Replay defense is one-time nonce consumption (`memory` or `redis` backend).
 - Requests are bounded by configured chain ids and `validUntil` horizon.
 - Signer rejects owner/admin-like selectors and self-target calls.
+- Optional rate limiting and leak scanning provide additional abuse resistance.

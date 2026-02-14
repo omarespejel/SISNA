@@ -309,4 +309,38 @@ describe("sign route", () => {
     expect(res.status).toBe(422);
     expect(res.body.error).toContain("chainId");
   });
+
+  it("rejects invalid felt fields (strict hex validation)", async () => {
+    const app = createApp(baseConfig);
+    const body = {
+      ...validBody,
+      accountAddress: `0x${"1".repeat(65)}`, // >32 bytes
+    };
+    const bodyRaw = JSON.stringify(body);
+
+    const res = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, "nonce-invalid-felt"))
+      .send(bodyRaw);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("invalid payload");
+    expect(res.body.details?.fieldErrors?.accountAddress?.length ?? 0).toBeGreaterThan(0);
+  });
+
+  it("enforces JSON body size limit (256kb)", async () => {
+    const app = createApp(baseConfig);
+    const body = {
+      ...validBody,
+      context: { reason: "a".repeat(300_000) },
+    };
+    const bodyRaw = JSON.stringify(body);
+
+    const res = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, "nonce-body-too-large"))
+      .send(bodyRaw);
+
+    expect(res.status).toBe(413);
+  });
 });
