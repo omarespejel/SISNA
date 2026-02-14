@@ -45,7 +45,7 @@ jobs:
       - name: Validate local interop manifest (schema)
         run: |
           set -euo pipefail
-          npx --yes ajv-cli@5 validate --strict=true \
+          npx --yes ajv-cli@5 validate --spec=draft2020 --strict=true \
             -s spec/interop-version.schema.json \
             -d spec/interop-version.json
 
