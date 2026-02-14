@@ -142,6 +142,7 @@ export function createApp(config: AppConfig) {
 
   app.use(
     express.json({
+      limit: "256kb",
       verify: (req, _res, buf) => {
         (req as RequestWithContext).rawBody = buf.toString("utf8");
       },
