@@ -1,5 +1,6 @@
 import { hash } from "starknet";
 import type { SignSessionTransactionRequest } from "../types/api.js";
+import { normalizeFelt } from "../utils/felt.js";
 
 const DENIED_ENTRYPOINTS = [
   "upgrade",
@@ -35,9 +36,9 @@ export type SigningPolicyConfig = {
   allowedChainIds: Set<string>;
 };
 
-function normalizeFelt(value: string): string {
+function normalizePolicyFelt(value: string): string {
   try {
-    return `0x${BigInt(value).toString(16)}`.toLowerCase();
+    return normalizeFelt(value);
   } catch {
     throw new PolicyError(`invalid felt value: ${value}`);
   }
@@ -56,20 +57,20 @@ export function assertSigningPolicy(
   }
 
   if (policy.allowedChainIds.size > 0) {
-    const chainId = normalizeFelt(req.chainId);
+    const chainId = normalizePolicyFelt(req.chainId);
     if (!policy.allowedChainIds.has(chainId)) {
       throw new PolicyError(`chainId ${req.chainId} is not allowed`);
     }
   }
 
   for (const call of req.calls) {
-    if (normalizeFelt(call.contractAddress) === normalizeFelt(req.accountAddress)) {
+    if (normalizePolicyFelt(call.contractAddress) === normalizePolicyFelt(req.accountAddress)) {
       throw new PolicyError("self-call is denied for session signing");
     }
 
     const selector = call.entrypoint.startsWith("0x")
-      ? normalizeFelt(call.entrypoint)
-      : normalizeFelt(hash.getSelectorFromName(call.entrypoint));
+      ? normalizePolicyFelt(call.entrypoint)
+      : normalizePolicyFelt(hash.getSelectorFromName(call.entrypoint));
 
     if (DENIED_SELECTOR_SET.has(selector)) {
       throw new PolicyError(`denied selector: ${call.entrypoint}`);

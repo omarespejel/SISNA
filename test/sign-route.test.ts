@@ -105,6 +105,19 @@ describe("sign route", () => {
     expect(res.headers["x-powered-by"]).toBeUndefined();
   });
 
+  it("blocks requests that include an Origin header", async () => {
+    const app = createApp(baseConfig);
+    const bodyRaw = JSON.stringify(validBody);
+    const res = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, "nonce-origin-blocked"))
+      .set("origin", "https://example.com")
+      .send(bodyRaw);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain("browser origins");
+  });
+
   it("returns 401 without auth headers", async () => {
     const app = createApp(baseConfig);
     const res = await request(app).post("/v1/sign/session-transaction").send(validBody);

@@ -2,6 +2,7 @@ import { ec, hash, num } from "starknet";
 import type { SignSessionTransactionRequest } from "../types/api.js";
 import { PolicyError, assertSigningPolicy, type SigningPolicyConfig } from "./policy.js";
 import type { SigningKeyConfig } from "../config.js";
+import { normalizeFelt } from "../utils/felt.js";
 
 export type SignatureResult = {
   sessionPublicKey: string;
@@ -52,7 +53,7 @@ export class SessionTransactionSigner {
     }
     const allowedAccounts = this.allowedAccountsByClient.get(clientId);
     if (allowedAccounts) {
-      const normalized = `0x${BigInt(req.accountAddress).toString(16)}`.toLowerCase();
+      const normalized = normalizeFelt(req.accountAddress);
       if (!allowedAccounts.has(normalized)) {
         throw new PolicyError(`client ${clientId} is not allowed to sign for account ${req.accountAddress}`);
       }
