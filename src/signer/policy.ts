@@ -20,7 +20,7 @@ const DENIED_ENTRYPOINTS = [
 ] as const;
 
 const DENIED_SELECTOR_SET = new Set(
-  DENIED_ENTRYPOINTS.map((name) => hash.getSelectorFromName(name).toLowerCase()),
+  DENIED_ENTRYPOINTS.map((name) => normalizeFelt(hash.getSelectorFromName(name))),
 );
 
 export class PolicyError extends Error {
@@ -36,7 +36,11 @@ export type SigningPolicyConfig = {
 };
 
 function normalizeFelt(value: string): string {
-  return `0x${BigInt(value).toString(16)}`.toLowerCase();
+  try {
+    return `0x${BigInt(value).toString(16)}`.toLowerCase();
+  } catch {
+    throw new PolicyError(`invalid felt value: ${value}`);
+  }
 }
 
 export function assertSigningPolicy(
@@ -59,13 +63,13 @@ export function assertSigningPolicy(
   }
 
   for (const call of req.calls) {
-    if (call.contractAddress.toLowerCase() === req.accountAddress.toLowerCase()) {
+    if (normalizeFelt(call.contractAddress) === normalizeFelt(req.accountAddress)) {
       throw new PolicyError("self-call is denied for session signing");
     }
 
     const selector = call.entrypoint.startsWith("0x")
-      ? call.entrypoint.toLowerCase()
-      : hash.getSelectorFromName(call.entrypoint).toLowerCase();
+      ? normalizeFelt(call.entrypoint)
+      : normalizeFelt(hash.getSelectorFromName(call.entrypoint));
 
     if (DENIED_SELECTOR_SET.has(selector)) {
       throw new PolicyError(`denied selector: ${call.entrypoint}`);
