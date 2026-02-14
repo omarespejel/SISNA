@@ -6,7 +6,8 @@ import { PolicyError } from "../signer/policy.js";
 import type { RequestWithContext } from "../types/http.js";
 import type { AuditLogger } from "../audit/logger.js";
 import type { LeakScanner } from "../security/leakScanner.js";
-import type { RateLimiter } from "../security/rateLimiter.js";
+import type { RateLimitDecision, RateLimiter } from "../security/rateLimiter.js";
+import { RateLimiterUnavailableError } from "../security/rateLimiter.js";
 
 export function signSessionRouter(args: {
   signer: SessionTransactionSigner;
@@ -44,7 +45,25 @@ export function signSessionRouter(args: {
           parsed.keyId ?? args.signer.defaultKeyId,
         ].join(":");
         const nowMs = Date.now();
-        const decision = await args.rateLimiter.check(rateKey, nowMs);
+        let decision: RateLimitDecision;
+        try {
+          decision = await args.rateLimiter.check(rateKey, nowMs);
+        } catch (err) {
+          const event = err instanceof RateLimiterUnavailableError
+            ? "rate_limit.unavailable"
+            : "rate_limit.error";
+          args.logger.log({
+            level: "error",
+            event,
+            requestId: req.requestId,
+            details: {
+              clientId,
+              error: err instanceof Error ? err.message : String(err),
+            },
+          });
+          res.status(503).json({ error: "rate limit unavailable" });
+          return;
+        }
         if (!decision.allowed) {
           args.logger.log({
             level: "warn",

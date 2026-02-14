@@ -8,6 +8,13 @@ export interface RateLimiter {
   check(key: string, nowMs: number): Promise<RateLimitDecision> | RateLimitDecision;
 }
 
+export class RateLimiterUnavailableError extends Error {
+  constructor(message = "rate limiter unavailable") {
+    super(message);
+    this.name = "RateLimiterUnavailableError";
+  }
+}
+
 type Bucket = {
   count: number;
   resetAtMs: number;
@@ -15,6 +22,8 @@ type Bucket = {
 
 export class InMemoryRateLimiter implements RateLimiter {
   private readonly buckets = new Map<string, Bucket>();
+  private operationsSincePrune = 0;
+  private static readonly PRUNE_INTERVAL = 64;
 
   constructor(
     private readonly windowMs: number,
@@ -33,12 +42,21 @@ export class InMemoryRateLimiter implements RateLimiter {
     const allowed = bucket.count <= this.maxRequests;
     const remaining = Math.max(0, this.maxRequests - bucket.count);
 
-    this.prune(nowMs);
+    this.maybePrune(nowMs);
     return {
       allowed,
       remaining,
       resetAtMs: bucket.resetAtMs,
     };
+  }
+
+  private maybePrune(nowMs: number): void {
+    this.operationsSincePrune += 1;
+    if (this.operationsSincePrune < InMemoryRateLimiter.PRUNE_INTERVAL) {
+      return;
+    }
+    this.operationsSincePrune = 0;
+    this.prune(nowMs);
   }
 
   private prune(nowMs: number): void {

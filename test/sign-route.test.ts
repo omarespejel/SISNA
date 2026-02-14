@@ -1,11 +1,12 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
-import { ec } from "starknet";
+import { ec, hash } from "starknet";
 import { createApp } from "../src/app.js";
 import { buildSigningPayload, computeHmacHex } from "../src/auth/hmac.js";
 import type { AppConfig } from "../src/config.js";
 
 const baseConfig: AppConfig = {
+  NODE_ENV: "test",
   PORT: 8545,
   HOST: "127.0.0.1",
   KEYRING_TRANSPORT: "http",
@@ -30,6 +31,13 @@ const baseConfig: AppConfig = {
   KEYRING_ALLOWED_CHAIN_IDS: [],
   KEYRING_REPLAY_STORE: "memory",
   KEYRING_REDIS_NONCE_PREFIX: "starknet-keyring-proxy:nonce:",
+  KEYRING_RATE_LIMIT_ENABLED: false,
+  KEYRING_RATE_LIMIT_BACKEND: "memory",
+  KEYRING_RATE_LIMIT_WINDOW_MS: 60_000,
+  KEYRING_RATE_LIMIT_MAX_REQUESTS: 120,
+  KEYRING_REDIS_RATE_LIMIT_PREFIX: "starknet-keyring-proxy:ratelimit:",
+  KEYRING_LEAK_SCANNER_ENABLED: false,
+  KEYRING_LEAK_SCANNER_ACTION: "block",
   KEYRING_DEFAULT_KEY_ID: "default",
   SIGNING_KEYS: [
     {
@@ -89,6 +97,14 @@ function authHeaders(
 }
 
 describe("sign route", () => {
+  it("serves unauthenticated health without stack fingerprinting", async () => {
+    const app = createApp(baseConfig);
+    const res = await request(app).get("/health");
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+    expect(res.headers["x-powered-by"]).toBeUndefined();
+  });
+
   it("returns 401 without auth headers", async () => {
     const app = createApp(baseConfig);
     const res = await request(app).post("/v1/sign/session-transaction").send(validBody);
@@ -196,6 +212,29 @@ describe("sign route", () => {
     expect(second.body.error).toContain("replayed nonce");
   });
 
+  it("does not consume nonce when HMAC signature is invalid", async () => {
+    const app = createApp(baseConfig);
+    const bodyRaw = JSON.stringify(validBody);
+    const nonce = "nonce-invalid-hmac-then-valid";
+    const invalidHeaders = {
+      ...authHeaders(bodyRaw, nonce),
+      "x-keyring-signature": "00".repeat(32),
+    };
+
+    const first = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(invalidHeaders)
+      .send(bodyRaw);
+    expect(first.status).toBe(401);
+    expect(first.body.error).toContain("invalid signature");
+
+    const second = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, nonce))
+      .send(bodyRaw);
+    expect(second.status).toBe(200);
+  });
+
   it("rejects stale timestamp", async () => {
     const app = createApp(baseConfig);
     const bodyRaw = JSON.stringify(validBody);
@@ -208,6 +247,18 @@ describe("sign route", () => {
 
     expect(res.status).toBe(401);
     expect(res.body.error).toContain("outside accepted window");
+  });
+
+  it("rejects oversized auth headers", async () => {
+    const app = createApp(baseConfig);
+    const bodyRaw = JSON.stringify(validBody);
+    const res = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, "n".repeat(129)))
+      .send(bodyRaw);
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toContain("header too large");
   });
 
   it("rejects self-calls with policy error", async () => {
@@ -233,6 +284,29 @@ describe("sign route", () => {
     expect(res.body.error).toContain("self-call");
   });
 
+  it("rejects self-calls with equivalent felt values (leading-zero variant)", async () => {
+    const app = createApp(baseConfig);
+    const body = {
+      ...validBody,
+      calls: [
+        {
+          contractAddress: "0x0111",
+          entrypoint: "transfer",
+          calldata: ["0xabc", "0x1", "0x0"],
+        },
+      ],
+    };
+    const bodyRaw = JSON.stringify(body);
+
+    const res = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, "nonce-self-leading-zero"))
+      .send(bodyRaw);
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("self-call");
+  });
+
   it("rejects denied selectors even on external targets", async () => {
     const app = createApp(baseConfig);
     const body = {
@@ -250,6 +324,30 @@ describe("sign route", () => {
     const res = await request(app)
       .post("/v1/sign/session-transaction")
       .set(authHeaders(bodyRaw, "nonce-denied-selector"))
+      .send(bodyRaw);
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("denied selector");
+  });
+
+  it("rejects denied selectors in hex form with leading zeros", async () => {
+    const app = createApp(baseConfig);
+    const deniedSelector = hash.getSelectorFromName("set_agent_id");
+    const body = {
+      ...validBody,
+      calls: [
+        {
+          contractAddress: "0x999",
+          entrypoint: `0x00${deniedSelector.slice(2)}`,
+          calldata: ["0x1"],
+        },
+      ],
+    };
+    const bodyRaw = JSON.stringify(body);
+
+    const res = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, "nonce-denied-selector-leading-zero"))
       .send(bodyRaw);
 
     expect(res.status).toBe(422);
@@ -310,11 +408,108 @@ describe("sign route", () => {
     expect(res.body.error).toContain("chainId");
   });
 
+  it("enforces rate limit when enabled", async () => {
+    const app = createApp({
+      ...baseConfig,
+      KEYRING_RATE_LIMIT_ENABLED: true,
+      KEYRING_RATE_LIMIT_WINDOW_MS: 60_000,
+      KEYRING_RATE_LIMIT_MAX_REQUESTS: 1,
+    });
+
+    const firstBody = JSON.stringify({
+      ...validBody,
+      nonce: "0x111",
+    });
+    const secondBody = JSON.stringify({
+      ...validBody,
+      nonce: "0x112",
+    });
+
+    const first = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(firstBody, "nonce-rl-1"))
+      .send(firstBody);
+    expect(first.status).toBe(200);
+
+    const second = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(secondBody, "nonce-rl-2"))
+      .send(secondBody);
+    expect(second.status).toBe(429);
+    expect(second.body.error).toContain("rate limit");
+  });
+
+  it("blocks inbound payload containing secret leak patterns", async () => {
+    const app = createApp({
+      ...baseConfig,
+      KEYRING_LEAK_SCANNER_ENABLED: true,
+      KEYRING_LEAK_SCANNER_ACTION: "block",
+    });
+    const body = {
+      ...validBody,
+      nonce: "0x113",
+      context: {
+        requester: "please use STARKNET_PRIVATE_KEY=0x1234",
+        tool: "starknet_transfer",
+      },
+    };
+    const bodyRaw = JSON.stringify(body);
+
+    const res = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, "nonce-leak-1"))
+      .send(bodyRaw);
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain("secret leak pattern");
+  });
+
+  it("rejects oversized context fields", async () => {
+    const app = createApp(baseConfig);
+    const body = {
+      ...validBody,
+      context: {
+        requester: "a".repeat(129),
+      },
+    };
+    const bodyRaw = JSON.stringify(body);
+
+    const res = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, "nonce-context-too-large"))
+      .send(bodyRaw);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("invalid payload");
+  });
+
+  it("rejects payloads with excessive total calldata elements", async () => {
+    const app = createApp(baseConfig);
+    const largeCall = {
+      contractAddress: "0x222",
+      entrypoint: "transfer",
+      calldata: Array.from({ length: 256 }, (_unused, index) => `0x${(index + 1).toString(16)}`),
+    };
+    const body = {
+      ...validBody,
+      calls: Array.from({ length: 9 }, () => largeCall),
+    };
+    const bodyRaw = JSON.stringify(body);
+
+    const res = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, "nonce-calldata-too-large"))
+      .send(bodyRaw);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("invalid payload");
+  });
+
   it("rejects invalid felt fields (strict hex validation)", async () => {
     const app = createApp(baseConfig);
     const body = {
       ...validBody,
-      accountAddress: `0x${"1".repeat(65)}`, // >32 bytes
+      accountAddress: `0x${"1".repeat(65)}`,
     };
     const bodyRaw = JSON.stringify(body);
 
@@ -324,7 +519,7 @@ describe("sign route", () => {
       .send(bodyRaw);
 
     expect(res.status).toBe(400);
-    expect(res.body.error).toBe("invalid payload");
+    expect(res.body.error).toContain("invalid payload");
     expect(res.body.details?.fieldErrors?.accountAddress?.length ?? 0).toBeGreaterThan(0);
   });
 
