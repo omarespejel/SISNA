@@ -15,9 +15,9 @@
   },
   "dependencies": {
     "express": "^4.21.2",
+    "helmet": "^8.1.0",
     "ioredis": "^5.9.3",
     "starknet": "^8.7.1",
-    "uuid": "^11.1.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {

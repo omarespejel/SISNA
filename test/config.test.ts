@@ -21,6 +21,9 @@ describe("config loading", () => {
     expect(cfg.AUTH_CLIENTS.length).toBe(1);
     expect(cfg.AUTH_CLIENTS[0]?.clientId).toBe("default");
     expect(cfg.KEYRING_REPLAY_STORE).toBe("memory");
+    expect(cfg.KEYRING_RATE_LIMIT_ENABLED).toBe(false);
+    expect(cfg.KEYRING_LEAK_SCANNER_ENABLED).toBe(false);
+    expect(cfg.NODE_ENV).toBe("development");
   });
 
   it("supports multi-key json mode", () => {
@@ -78,6 +81,17 @@ describe("config loading", () => {
     ).toThrow(/KEYRING_REDIS_URL/i);
   });
 
+  it("requires redis url when rate limit backend is redis", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_RATE_LIMIT_ENABLED: "true",
+        KEYRING_RATE_LIMIT_BACKEND: "redis",
+      }),
+    ).toThrow(/KEYRING_REDIS_URL/i);
+  });
+
   it("accepts redis replay store config", () => {
     const cfg = loadConfig({
       ...baseEnv(),
@@ -90,6 +104,29 @@ describe("config loading", () => {
     expect(cfg.KEYRING_REPLAY_STORE).toBe("redis");
     expect(cfg.KEYRING_REDIS_URL).toBe("redis://localhost:6379");
     expect(cfg.KEYRING_REDIS_NONCE_PREFIX).toBe("test:nonce:");
+  });
+
+  it("accepts rate limit and leak scanner config", () => {
+    const cfg = loadConfig({
+      ...baseEnv(),
+      SESSION_PRIVATE_KEY: "0x1",
+      KEYRING_REDIS_URL: "redis://localhost:6379",
+      KEYRING_RATE_LIMIT_ENABLED: "true",
+      KEYRING_RATE_LIMIT_BACKEND: "redis",
+      KEYRING_RATE_LIMIT_WINDOW_MS: "30000",
+      KEYRING_RATE_LIMIT_MAX_REQUESTS: "30",
+      KEYRING_REDIS_RATE_LIMIT_PREFIX: "test:rl:",
+      KEYRING_LEAK_SCANNER_ENABLED: "true",
+      KEYRING_LEAK_SCANNER_ACTION: "warn",
+    });
+
+    expect(cfg.KEYRING_RATE_LIMIT_ENABLED).toBe(true);
+    expect(cfg.KEYRING_RATE_LIMIT_BACKEND).toBe("redis");
+    expect(cfg.KEYRING_RATE_LIMIT_WINDOW_MS).toBe(30000);
+    expect(cfg.KEYRING_RATE_LIMIT_MAX_REQUESTS).toBe(30);
+    expect(cfg.KEYRING_REDIS_RATE_LIMIT_PREFIX).toBe("test:rl:");
+    expect(cfg.KEYRING_LEAK_SCANNER_ENABLED).toBe(true);
+    expect(cfg.KEYRING_LEAK_SCANNER_ACTION).toBe("warn");
   });
 
   it("requires tls cert and key when https transport is enabled", () => {
@@ -139,6 +176,80 @@ describe("config loading", () => {
     expect(cfg.KEYRING_TRANSPORT).toBe("https");
     expect(cfg.KEYRING_MTLS_REQUIRED).toBe(true);
     expect(cfg.KEYRING_TLS_CA_PATH).toBe("/tmp/ca.crt");
+  });
+
+  it("requires https transport in production", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        NODE_ENV: "production",
+        SESSION_PRIVATE_KEY: "0x1",
+      }),
+    ).toThrow(/NODE_ENV=production requires KEYRING_TRANSPORT=https/i);
+  });
+
+  it("requires mTLS in production", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        NODE_ENV: "production",
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_TRANSPORT: "https",
+        KEYRING_TLS_CERT_PATH: "/tmp/server.crt",
+        KEYRING_TLS_KEY_PATH: "/tmp/server.key",
+      }),
+    ).toThrow(/NODE_ENV=production requires KEYRING_MTLS_REQUIRED=true/i);
+  });
+
+  it("accepts production profile with https + mTLS", () => {
+    const cfg = loadConfig({
+      ...baseEnv(),
+      NODE_ENV: "production",
+      SESSION_PRIVATE_KEY: "0x1",
+      KEYRING_TRANSPORT: "https",
+      KEYRING_TLS_CERT_PATH: "/tmp/server.crt",
+      KEYRING_TLS_KEY_PATH: "/tmp/server.key",
+      KEYRING_TLS_CA_PATH: "/tmp/ca.crt",
+      KEYRING_MTLS_REQUIRED: "true",
+    });
+
+    expect(cfg.NODE_ENV).toBe("production");
+    expect(cfg.KEYRING_TRANSPORT).toBe("https");
+    expect(cfg.KEYRING_MTLS_REQUIRED).toBe(true);
+  });
+
+  it("requires rediss url in production when redis replay store is enabled", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        NODE_ENV: "production",
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_TRANSPORT: "https",
+        KEYRING_TLS_CERT_PATH: "/tmp/server.crt",
+        KEYRING_TLS_KEY_PATH: "/tmp/server.key",
+        KEYRING_TLS_CA_PATH: "/tmp/ca.crt",
+        KEYRING_MTLS_REQUIRED: "true",
+        KEYRING_REPLAY_STORE: "redis",
+        KEYRING_REDIS_URL: "redis://localhost:6379",
+      }),
+    ).toThrow(/KEYRING_REDIS_URL to use rediss/i);
+  });
+
+  it("accepts rediss url in production when redis replay store is enabled", () => {
+    const cfg = loadConfig({
+      ...baseEnv(),
+      NODE_ENV: "production",
+      SESSION_PRIVATE_KEY: "0x1",
+      KEYRING_TRANSPORT: "https",
+      KEYRING_TLS_CERT_PATH: "/tmp/server.crt",
+      KEYRING_TLS_KEY_PATH: "/tmp/server.key",
+      KEYRING_TLS_CA_PATH: "/tmp/ca.crt",
+      KEYRING_MTLS_REQUIRED: "true",
+      KEYRING_REPLAY_STORE: "redis",
+      KEYRING_REDIS_URL: "rediss://localhost:6379",
+    });
+
+    expect(cfg.KEYRING_REDIS_URL).toBe("rediss://localhost:6379");
   });
 
   it("requires auth config via keyring secret or auth clients json", () => {

@@ -8,6 +8,10 @@ const TS_HEADER = "x-keyring-timestamp";
 const NONCE_HEADER = "x-keyring-nonce";
 const SIG_HEADER = "x-keyring-signature";
 const CLIENT_HEADER = "x-keyring-client-id";
+const MAX_TIMESTAMP_HEADER_LEN = 32;
+const MAX_NONCE_HEADER_LEN = 128;
+const MAX_SIGNATURE_HEADER_LEN = 256;
+const MAX_CLIENT_ID_HEADER_LEN = 128;
 
 export function createHmacMiddleware(args: {
   defaultClientId: string;
@@ -29,6 +33,27 @@ export function createHmacMiddleware(args: {
         requestId: req.requestId,
       });
       res.status(401).json({ error: "missing authentication headers" });
+      return;
+    }
+
+    if (
+      tsRaw.length > MAX_TIMESTAMP_HEADER_LEN
+      || nonce.length > MAX_NONCE_HEADER_LEN
+      || sig.length > MAX_SIGNATURE_HEADER_LEN
+      || clientId.length > MAX_CLIENT_ID_HEADER_LEN
+    ) {
+      args.logger.log({
+        level: "warn",
+        event: "auth.header_too_large",
+        requestId: req.requestId,
+        details: {
+          timestampLen: tsRaw.length,
+          nonceLen: nonce.length,
+          signatureLen: sig.length,
+          clientIdLen: clientId.length,
+        },
+      });
+      res.status(401).json({ error: "authentication header too large" });
       return;
     }
 
@@ -62,6 +87,26 @@ export function createHmacMiddleware(args: {
       return;
     }
 
+    const rawBody = req.rawBody ?? "";
+    const payload = buildSigningPayload({
+      timestamp: tsRaw,
+      nonce,
+      method: req.method,
+      path: req.originalUrl,
+      rawBody,
+    });
+    const expected = computeHmacHex(secret, payload);
+
+    if (!secureHexEqual(sig, expected)) {
+      args.logger.log({
+        level: "warn",
+        event: "auth.invalid_signature",
+        requestId: req.requestId,
+      });
+      res.status(401).json({ error: "invalid signature" });
+      return;
+    }
+
     try {
       const nonceAccepted = await args.nonceStore.consume(nonce, now);
       if (!nonceAccepted) {
@@ -84,26 +129,6 @@ export function createHmacMiddleware(args: {
         },
       });
       res.status(503).json({ error: "replay protection unavailable" });
-      return;
-    }
-
-    const rawBody = req.rawBody ?? "";
-    const payload = buildSigningPayload({
-      timestamp: tsRaw,
-      nonce,
-      method: req.method,
-      path: req.originalUrl,
-      rawBody,
-    });
-    const expected = computeHmacHex(secret, payload);
-
-    if (!secureHexEqual(sig, expected)) {
-      args.logger.log({
-        level: "warn",
-        event: "auth.invalid_signature",
-        requestId: req.requestId,
-      });
-      res.status(401).json({ error: "invalid signature" });
       return;
     }
 

@@ -4,6 +4,12 @@ Hardened signer boundary for Starknet agent session keys.
 
 This repository is the signing service component of the SISNA stack (Sign In with Starknet Agent).
 
+## Release Policy
+
+- Changelog: `CHANGELOG.md`
+- Versioning policy: `VERSIONING.md`
+- Security policy: `SECURITY.md`
+
 ## Scope
 
 What this service does:
@@ -143,6 +149,8 @@ See `docs/api-spec.yaml` for request/response schema.
 ## Security model
 
 - Private keys remain in this process only; clients submit unsigned payloads.
+- In-process key storage is acceptable for development and controlled environments; production
+  deployments should prefer external signing/KMS/HSM-backed keys.
 - Requests require HMAC + nonce + timestamp.
 - Replay defense is one-time nonce consumption (`memory` or `redis` backend).
 - Requests are bounded by configured chain ids and `validUntil` horizon.

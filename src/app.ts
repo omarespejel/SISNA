@@ -1,6 +1,7 @@
 import express from "express";
 import { randomUUID } from "node:crypto";
 import { Redis } from "ioredis";
+import helmet from "helmet";
 import type { AppConfig } from "./config.js";
 import { AuditLogger } from "./audit/logger.js";
 import { InMemoryNonceStore } from "./auth/nonceStore.js";
@@ -19,19 +20,34 @@ function normalizeFelt(value: string): string {
   return `0x${BigInt(value).toString(16)}`.toLowerCase();
 }
 
-function createNonceStore(config: AppConfig, logger: AuditLogger): NonceStore {
+function createSharedRedisClient(config: AppConfig, logger: AuditLogger): Redis | undefined {
+  const needsReplayRedis = config.KEYRING_REPLAY_STORE === "redis";
+  const needsRateLimitRedis = config.KEYRING_RATE_LIMIT_ENABLED
+    && config.KEYRING_RATE_LIMIT_BACKEND === "redis";
+  if (!needsReplayRedis && !needsRateLimitRedis) {
+    return undefined;
+  }
+  const redis = new Redis(config.KEYRING_REDIS_URL!, {
+    lazyConnect: false,
+    enableOfflineQueue: false,
+    maxRetriesPerRequest: 1,
+  });
+  redis.on("error", (err: Error) => {
+    logger.log({
+      level: "error",
+      event: "redis.client_error",
+      details: { error: err.message },
+    });
+  });
+  return redis;
+}
+
+function createNonceStore(config: AppConfig, logger: AuditLogger, sharedRedis?: Redis): NonceStore {
   if (config.KEYRING_REPLAY_STORE === "redis") {
-    const redis = new Redis(config.KEYRING_REDIS_URL!, {
+    const redis = sharedRedis ?? new Redis(config.KEYRING_REDIS_URL!, {
       lazyConnect: false,
       enableOfflineQueue: false,
       maxRetriesPerRequest: 1,
-    });
-    redis.on("error", (err: Error) => {
-      logger.log({
-        level: "error",
-        event: "replay.redis_error",
-        details: { error: err.message },
-      });
     });
     logger.log({
       level: "info",
@@ -49,7 +65,7 @@ function createNonceStore(config: AppConfig, logger: AuditLogger): NonceStore {
   return new InMemoryNonceStore(config.KEYRING_NONCE_TTL_MS);
 }
 
-function createRateLimiter(config: AppConfig, logger: AuditLogger): RateLimiter | null {
+function createRateLimiter(config: AppConfig, logger: AuditLogger, sharedRedis?: Redis): RateLimiter | null {
   if (!config.KEYRING_RATE_LIMIT_ENABLED) {
     logger.log({
       level: "info",
@@ -59,17 +75,10 @@ function createRateLimiter(config: AppConfig, logger: AuditLogger): RateLimiter 
   }
 
   if (config.KEYRING_RATE_LIMIT_BACKEND === "redis") {
-    const redis = new Redis(config.KEYRING_REDIS_URL!, {
+    const redis = sharedRedis ?? new Redis(config.KEYRING_REDIS_URL!, {
       lazyConnect: false,
       enableOfflineQueue: false,
       maxRetriesPerRequest: 1,
-    });
-    redis.on("error", (err: Error) => {
-      logger.log({
-        level: "error",
-        event: "rate_limit.redis_error",
-        details: { error: err.message },
-      });
     });
     logger.log({
       level: "info",
@@ -106,8 +115,9 @@ function createRateLimiter(config: AppConfig, logger: AuditLogger): RateLimiter 
 export function createApp(config: AppConfig) {
   const app = express();
   const logger = new AuditLogger(config.LOG_LEVEL);
-  const nonceStore = createNonceStore(config, logger);
-  const rateLimiter = createRateLimiter(config, logger);
+  const sharedRedis = createSharedRedisClient(config, logger);
+  const nonceStore = createNonceStore(config, logger, sharedRedis);
+  const rateLimiter = createRateLimiter(config, logger, sharedRedis);
   const leakScanner = new LeakScanner(
     config.KEYRING_LEAK_SCANNER_ENABLED,
     config.KEYRING_LEAK_SCANNER_ACTION,
@@ -138,6 +148,13 @@ export function createApp(config: AppConfig) {
       maxValidityWindowSec: config.KEYRING_MAX_VALIDITY_WINDOW_SEC,
       allowedChainIds,
     },
+  );
+
+  app.disable("x-powered-by");
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+    }),
   );
 
   app.use(
@@ -172,6 +189,10 @@ export function createApp(config: AppConfig) {
   );
 
   app.use(signSessionRouter({ signer, logger, leakScanner, rateLimiter }));
+
+  app.use((_req, res) => {
+    res.status(404).json({ error: "not found" });
+  });
 
   return app;
 }

@@ -244,6 +244,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     if (!parsed.KEYRING_MTLS_REQUIRED) {
       throw new Error("NODE_ENV=production requires KEYRING_MTLS_REQUIRED=true");
     }
+    const redisRequired = parsed.KEYRING_REPLAY_STORE === "redis"
+      || (parsed.KEYRING_RATE_LIMIT_ENABLED && parsed.KEYRING_RATE_LIMIT_BACKEND === "redis");
+    if (redisRequired && parsed.KEYRING_REDIS_URL && !parsed.KEYRING_REDIS_URL.startsWith("rediss://")) {
+      throw new Error("NODE_ENV=production requires KEYRING_REDIS_URL to use rediss://");
+    }
   }
 
   return {

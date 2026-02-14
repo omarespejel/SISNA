@@ -5,6 +5,9 @@ import { createKeyringServer } from "./transport/server.js";
 const config = loadConfig();
 const app = createApp(config);
 const server = createKeyringServer(app, config);
+server.requestTimeout = 30_000;
+server.headersTimeout = 35_000;
+server.keepAliveTimeout = 5_000;
 
 server.listen(config.PORT, config.HOST, () => {
   process.stdout.write(
