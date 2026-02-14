@@ -1,0 +1,10 @@
+title = "SISNA gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+paths = [
+  '''^src/security/leakScanner\\.ts$''',
+  '''^test/leakScanner\\.test\\.ts$''',
+]

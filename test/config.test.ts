@@ -3,7 +3,7 @@ import { loadConfig } from "../src/config.js";
 
 function baseEnv(): NodeJS.ProcessEnv {
   return {
-    KEYRING_HMAC_SECRET: "0123456789abcdef0123456789abcdef",
+    KEYRING_HMAC_SECRET: "not-a-real-hmac-secret-change-me",
   };
 }
 
@@ -41,7 +41,7 @@ describe("config loading", () => {
       SESSION_PRIVATE_KEY: "0x1",
       KEYRING_DEFAULT_AUTH_CLIENT_ID: "mcp-ops",
       KEYRING_AUTH_CLIENTS_JSON:
-        '[{"clientId":"mcp-default","hmacSecret":"0123456789abcdef0123456789abcdef","allowedKeyIds":["default"]},{"clientId":"mcp-ops","hmacSecret":"abcdef0123456789abcdef0123456789"}]',
+        '[{"clientId":"mcp-default","hmacSecret":"not-a-real-hmac-secret-change-me-0001","allowedKeyIds":["default"]},{"clientId":"mcp-ops","hmacSecret":"not-a-real-hmac-secret-change-me-0002"}]',
     });
 
     expect(cfg.AUTH_CLIENTS.length).toBe(2);
@@ -155,7 +155,7 @@ describe("config loading", () => {
         ...baseEnv(),
         SESSION_PRIVATE_KEY: "0x1",
         KEYRING_AUTH_CLIENTS_JSON:
-          '[{"clientId":"a","hmacSecret":"0123456789abcdef0123456789abcdef"},{"clientId":"a","hmacSecret":"abcdef0123456789abcdef0123456789"}]',
+          '[{"clientId":"a","hmacSecret":"not-a-real-hmac-secret-change-me-0001"},{"clientId":"a","hmacSecret":"not-a-real-hmac-secret-change-me-0002"}]',
       }),
     ).toThrow(/Duplicate auth client id/i);
   });
@@ -166,7 +166,7 @@ describe("config loading", () => {
         ...baseEnv(),
         SESSION_PRIVATE_KEY: "0x1",
         KEYRING_AUTH_CLIENTS_JSON:
-          '[{"clientId":"a","hmacSecret":"0123456789abcdef0123456789abcdef","allowedKeyIds":["ops"]}]',
+          '[{"clientId":"a","hmacSecret":"not-a-real-hmac-secret-change-me-0001","allowedKeyIds":["ops"]}]',
       }),
     ).toThrow(/unknown keyId/i);
   });

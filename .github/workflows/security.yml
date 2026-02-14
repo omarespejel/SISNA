@@ -25,7 +25,7 @@ jobs:
       - name: Scan repository for secrets (working tree)
         run: |
           set -euo pipefail
-          gitleaks detect --source . --no-git --redact --exit-code 1
+          gitleaks detect --source . --no-git --redact --exit-code 1 --config .gitleaks.toml
 
   dependency-audit:
     name: Dependency Audit

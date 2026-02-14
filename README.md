@@ -70,7 +70,7 @@ Example:
 
 ```bash
 KEYRING_DEFAULT_AUTH_CLIENT_ID=mcp-default
-KEYRING_AUTH_CLIENTS_JSON=[{"clientId":"mcp-default","hmacSecret":"0123456789abcdef0123456789abcdef","allowedKeyIds":["default"]},{"clientId":"mcp-ops","hmacSecret":"abcdef0123456789abcdef0123456789","allowedKeyIds":["ops"]}]
+KEYRING_AUTH_CLIENTS_JSON=[{"clientId":"mcp-default","hmacSecret":"not-a-real-hmac-secret-change-me-0001","allowedKeyIds":["default"]},{"clientId":"mcp-ops","hmacSecret":"not-a-real-hmac-secret-change-me-0002","allowedKeyIds":["ops"]}]
 ```
 
 ## API
