@@ -13,15 +13,18 @@ export class SessionTransactionSigner {
   readonly defaultKeyId: string;
   private readonly signingKeysById: Map<string, { privateKey: string; sessionPublicKey: string }>;
   private readonly allowedKeyIdsByClient: Map<string, Set<string> | undefined>;
+  private readonly allowedAccountsByClient: Map<string, Set<string> | undefined>;
 
   constructor(
     signingKeys: SigningKeyConfig[],
     defaultKeyId: string,
     allowedKeyIdsByClient: Map<string, Set<string> | undefined>,
+    allowedAccountsByClient: Map<string, Set<string> | undefined>,
     private readonly signingPolicy: SigningPolicyConfig,
   ) {
     this.defaultKeyId = defaultKeyId;
     this.allowedKeyIdsByClient = allowedKeyIdsByClient;
+    this.allowedAccountsByClient = allowedAccountsByClient;
     this.signingKeysById = new Map();
 
     for (const key of signingKeys) {
@@ -46,6 +49,13 @@ export class SessionTransactionSigner {
     const allowedKeyIds = this.allowedKeyIdsByClient.get(clientId);
     if (allowedKeyIds && !allowedKeyIds.has(requestedKeyId)) {
       throw new PolicyError(`client ${clientId} is not allowed to use keyId ${requestedKeyId}`);
+    }
+    const allowedAccounts = this.allowedAccountsByClient.get(clientId);
+    if (allowedAccounts) {
+      const normalized = `0x${BigInt(req.accountAddress).toString(16)}`.toLowerCase();
+      if (!allowedAccounts.has(normalized)) {
+        throw new PolicyError(`client ${clientId} is not allowed to sign for account ${req.accountAddress}`);
+      }
     }
     const key = this.signingKeysById.get(requestedKeyId);
     if (!key) {

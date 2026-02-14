@@ -10,6 +10,9 @@ import { createHmacMiddleware } from "./auth/middleware.js";
 import { SessionTransactionSigner } from "./signer/sessionSigner.js";
 import { healthRouter } from "./routes/health.js";
 import { signSessionRouter } from "./routes/signSessionTransaction.js";
+import { LeakScanner } from "./security/leakScanner.js";
+import { InMemoryRateLimiter, type RateLimiter } from "./security/rateLimiter.js";
+import { RedisRateLimiter } from "./security/redisRateLimiter.js";
 import type { RequestWithContext } from "./types/http.js";
 
 function normalizeFelt(value: string): string {
@@ -46,10 +49,70 @@ function createNonceStore(config: AppConfig, logger: AuditLogger): NonceStore {
   return new InMemoryNonceStore(config.KEYRING_NONCE_TTL_MS);
 }
 
+function createRateLimiter(config: AppConfig, logger: AuditLogger): RateLimiter | null {
+  if (!config.KEYRING_RATE_LIMIT_ENABLED) {
+    logger.log({
+      level: "info",
+      event: "rate_limit.disabled",
+    });
+    return null;
+  }
+
+  if (config.KEYRING_RATE_LIMIT_BACKEND === "redis") {
+    const redis = new Redis(config.KEYRING_REDIS_URL!, {
+      lazyConnect: false,
+      enableOfflineQueue: false,
+      maxRetriesPerRequest: 1,
+    });
+    redis.on("error", (err: Error) => {
+      logger.log({
+        level: "error",
+        event: "rate_limit.redis_error",
+        details: { error: err.message },
+      });
+    });
+    logger.log({
+      level: "info",
+      event: "rate_limit.enabled",
+      details: {
+        backend: "redis",
+        maxRequests: config.KEYRING_RATE_LIMIT_MAX_REQUESTS,
+        windowMs: config.KEYRING_RATE_LIMIT_WINDOW_MS,
+      },
+    });
+    return new RedisRateLimiter(
+      redis,
+      config.KEYRING_RATE_LIMIT_WINDOW_MS,
+      config.KEYRING_RATE_LIMIT_MAX_REQUESTS,
+      config.KEYRING_REDIS_RATE_LIMIT_PREFIX,
+    );
+  }
+
+  logger.log({
+    level: "info",
+    event: "rate_limit.enabled",
+    details: {
+      backend: "memory",
+      maxRequests: config.KEYRING_RATE_LIMIT_MAX_REQUESTS,
+      windowMs: config.KEYRING_RATE_LIMIT_WINDOW_MS,
+    },
+  });
+  return new InMemoryRateLimiter(
+    config.KEYRING_RATE_LIMIT_WINDOW_MS,
+    config.KEYRING_RATE_LIMIT_MAX_REQUESTS,
+  );
+}
+
 export function createApp(config: AppConfig) {
   const app = express();
   const logger = new AuditLogger(config.LOG_LEVEL);
   const nonceStore = createNonceStore(config, logger);
+  const rateLimiter = createRateLimiter(config, logger);
+  const leakScanner = new LeakScanner(
+    config.KEYRING_LEAK_SCANNER_ENABLED,
+    config.KEYRING_LEAK_SCANNER_ACTION,
+    logger,
+  );
   const clientSecrets = new Map(config.AUTH_CLIENTS.map((client) => [client.clientId, client.hmacSecret]));
   const allowedKeyIdsByClient = new Map(
     config.AUTH_CLIENTS.map((client) => [
@@ -57,11 +120,20 @@ export function createApp(config: AppConfig) {
       client.allowedKeyIds ? new Set(client.allowedKeyIds) : undefined,
     ]),
   );
+  const allowedAccountsByClient = new Map(
+    config.AUTH_CLIENTS.map((client) => [
+      client.clientId,
+      client.allowedAccountAddresses
+        ? new Set(client.allowedAccountAddresses.map(normalizeFelt))
+        : undefined,
+    ]),
+  );
   const allowedChainIds = new Set(config.KEYRING_ALLOWED_CHAIN_IDS.map(normalizeFelt));
   const signer = new SessionTransactionSigner(
     config.SIGNING_KEYS,
     config.KEYRING_DEFAULT_KEY_ID,
     allowedKeyIdsByClient,
+    allowedAccountsByClient,
     {
       maxValidityWindowSec: config.KEYRING_MAX_VALIDITY_WINDOW_SEC,
       allowedChainIds,
@@ -94,7 +166,7 @@ export function createApp(config: AppConfig) {
     }),
   );
 
-  app.use(signSessionRouter({ signer, logger }));
+  app.use(signSessionRouter({ signer, logger, leakScanner, rateLimiter }));
 
   return app;
 }

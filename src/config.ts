@@ -28,9 +28,11 @@ const AuthClientSchema = z.object({
   clientId: z.string().min(1),
   hmacSecret: z.string().min(16),
   allowedKeyIds: z.array(z.string().min(1)).optional(),
+  allowedAccountAddresses: z.array(z.string().startsWith("0x")).optional(),
 });
 
 const EnvSchema = z.object({
+  NODE_ENV: z.string().optional(),
   PORT: z.coerce.number().int().positive().default(8545),
   HOST: z.string().default("127.0.0.1"),
   KEYRING_TRANSPORT: z.enum(["http", "https"]).default("http"),
@@ -49,6 +51,13 @@ const EnvSchema = z.object({
   KEYRING_REPLAY_STORE: z.enum(["memory", "redis"]).default("memory"),
   KEYRING_REDIS_URL: z.string().url().optional(),
   KEYRING_REDIS_NONCE_PREFIX: z.string().default("starknet-keyring-proxy:nonce:"),
+  KEYRING_RATE_LIMIT_ENABLED: z.string().default("false").transform(parseBoolean),
+  KEYRING_RATE_LIMIT_BACKEND: z.enum(["memory", "redis"]).default("memory"),
+  KEYRING_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  KEYRING_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(120),
+  KEYRING_REDIS_RATE_LIMIT_PREFIX: z.string().default("starknet-keyring-proxy:ratelimit:"),
+  KEYRING_LEAK_SCANNER_ENABLED: z.string().default("false").transform(parseBoolean),
+  KEYRING_LEAK_SCANNER_ACTION: z.enum(["block", "warn"]).default("block"),
   KEYRING_DEFAULT_KEY_ID: z.string().min(1).default("default"),
   KEYRING_SIGNING_KEYS_JSON: z.string().default(""),
   SESSION_PRIVATE_KEY: z.string().startsWith("0x").optional(),
@@ -59,6 +68,7 @@ export type SigningKeyConfig = z.infer<typeof SigningKeySchema>;
 export type AuthClientConfig = z.infer<typeof AuthClientSchema>;
 
 export type AppConfig = {
+  NODE_ENV: string;
   PORT: number;
   HOST: string;
   KEYRING_TRANSPORT: "http" | "https";
@@ -76,6 +86,13 @@ export type AppConfig = {
   KEYRING_REPLAY_STORE: "memory" | "redis";
   KEYRING_REDIS_URL?: string;
   KEYRING_REDIS_NONCE_PREFIX: string;
+  KEYRING_RATE_LIMIT_ENABLED: boolean;
+  KEYRING_RATE_LIMIT_BACKEND: "memory" | "redis";
+  KEYRING_RATE_LIMIT_WINDOW_MS: number;
+  KEYRING_RATE_LIMIT_MAX_REQUESTS: number;
+  KEYRING_REDIS_RATE_LIMIT_PREFIX: string;
+  KEYRING_LEAK_SCANNER_ENABLED: boolean;
+  KEYRING_LEAK_SCANNER_ACTION: "block" | "warn";
   KEYRING_DEFAULT_KEY_ID: string;
   SIGNING_KEYS: SigningKeyConfig[];
 };
@@ -117,6 +134,8 @@ function parseAuthClientsJson(raw: string): AuthClientConfig[] | undefined {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = EnvSchema.parse(env);
+  const runtimeEnvironment = (parsed.NODE_ENV ?? "development").toLowerCase();
+  const isProduction = runtimeEnvironment === "production";
   const fromJson = parseSigningKeysJson(parsed.KEYRING_SIGNING_KEYS_JSON);
   const authClientsFromJson = parseAuthClientsJson(parsed.KEYRING_AUTH_CLIENTS_JSON);
 
@@ -193,6 +212,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (parsed.KEYRING_REPLAY_STORE === "redis" && !parsed.KEYRING_REDIS_URL) {
     throw new Error("KEYRING_REDIS_URL is required when KEYRING_REPLAY_STORE=redis");
   }
+  if (
+    parsed.KEYRING_RATE_LIMIT_ENABLED
+      && parsed.KEYRING_RATE_LIMIT_BACKEND === "redis"
+      && !parsed.KEYRING_REDIS_URL
+  ) {
+    throw new Error("KEYRING_REDIS_URL is required when KEYRING_RATE_LIMIT_BACKEND=redis");
+  }
 
   if (parsed.KEYRING_TRANSPORT === "https") {
     if (!parsed.KEYRING_TLS_CERT_PATH || !parsed.KEYRING_TLS_KEY_PATH) {
@@ -211,7 +237,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     }
   }
 
+  if (isProduction) {
+    if (parsed.KEYRING_TRANSPORT !== "https") {
+      throw new Error("NODE_ENV=production requires KEYRING_TRANSPORT=https");
+    }
+    if (!parsed.KEYRING_MTLS_REQUIRED) {
+      throw new Error("NODE_ENV=production requires KEYRING_MTLS_REQUIRED=true");
+    }
+  }
+
   return {
+    NODE_ENV: runtimeEnvironment,
     PORT: parsed.PORT,
     HOST: parsed.HOST,
     KEYRING_TRANSPORT: parsed.KEYRING_TRANSPORT,
@@ -229,6 +265,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     KEYRING_REPLAY_STORE: parsed.KEYRING_REPLAY_STORE,
     KEYRING_REDIS_URL: parsed.KEYRING_REDIS_URL,
     KEYRING_REDIS_NONCE_PREFIX: parsed.KEYRING_REDIS_NONCE_PREFIX,
+    KEYRING_RATE_LIMIT_ENABLED: parsed.KEYRING_RATE_LIMIT_ENABLED,
+    KEYRING_RATE_LIMIT_BACKEND: parsed.KEYRING_RATE_LIMIT_BACKEND,
+    KEYRING_RATE_LIMIT_WINDOW_MS: parsed.KEYRING_RATE_LIMIT_WINDOW_MS,
+    KEYRING_RATE_LIMIT_MAX_REQUESTS: parsed.KEYRING_RATE_LIMIT_MAX_REQUESTS,
+    KEYRING_REDIS_RATE_LIMIT_PREFIX: parsed.KEYRING_REDIS_RATE_LIMIT_PREFIX,
+    KEYRING_LEAK_SCANNER_ENABLED: parsed.KEYRING_LEAK_SCANNER_ENABLED,
+    KEYRING_LEAK_SCANNER_ACTION: parsed.KEYRING_LEAK_SCANNER_ACTION,
     KEYRING_DEFAULT_KEY_ID: parsed.KEYRING_DEFAULT_KEY_ID,
     SIGNING_KEYS: signingKeys,
   };
