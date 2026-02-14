@@ -151,11 +151,7 @@ export function createApp(config: AppConfig) {
   );
 
   app.disable("x-powered-by");
-  app.use(
-    helmet({
-      contentSecurityPolicy: false,
-    }),
-  );
+  app.use(helmet());
 
   app.use(
     express.json({
