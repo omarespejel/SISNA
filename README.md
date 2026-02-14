@@ -1,40 +1,76 @@
-# SISNA Signer
+# SISNA
 
 Hardened signer boundary for Starknet agent session keys.
 
-This repository is the signing service component of the SISNA stack (Sign In with Starknet Agent).
+SISNA is a reference implementation of a simple idea:
 
-## Release Policy
+**Don't let your agent hold signing keys. Isolate signing behind a hardened boundary with strict policy, auth, and auditability.**
 
-- Changelog: `CHANGELOG.md`
-- Versioning policy: `VERSIONING.md`
-- Security policy: `SECURITY.md`
+If prompt-injection hits your agent runtime, the signer boundary should still refuse unauthorized or malformed execution.
 
-## Scope
+This repo exists to make that concrete: a security-first signer service you can run, verify, and integrate.
 
-What this service does:
-- Holds Starknet session signing keys outside the MCP/agent runtime
-- Signs session transactions via a hardened API boundary
-- Enforces auth/policy/replay controls before signing
-- Produces auditable signing events
+## Send Your Agent
 
-What this service does not do (yet):
-- Full SISNA auth flow (nonce challenge, verification receipts, full server auth protocol)
-- On-chain identity registry orchestration by itself
+SISNA follows a GitHub-native, agentic workflow inspired by Starkclaw's BYOA model.
+
+**Give your AI coding agent this single instruction:**
+
+> Clone https://github.com/omarespejel/SISNA, read BYOA.md, and execute the protocol. You are an OpenClaw agent.
+
+That's it. The agent will self-identify, claim scoped issues, open focused PRs, review peers, and coordinate through GitHub.
+
+Works with Claude Code, Codex, Cursor, or any agent that can run `gh` workflows.
+
+## What This Service Does
+
+- Holds Starknet session signing keys outside MCP/agent runtime
+- Signs session transactions through a hardened API boundary
+- Enforces auth, replay protection, rate limiting, and policy checks before signing
+- Emits auditable signing events with trace context
+
+## What This Service Does Not Do (Yet)
+
+- Full SISNA auth protocol (challenge/verification receipts end-to-end)
+- On-chain identity registry orchestration on its own
 
 ## Features
 
-- Session transaction signing endpoint (`/v1/sign/session-transaction`)
-- HMAC request authentication
-- Per-client authorization (`client -> allowed keyIds`)
-- Nonce replay protection with TTL
+- Session transaction signing endpoint (`POST /v1/sign/session-transaction`)
+- HMAC request authentication (`X-Keyring-*` headers)
+- Per-client authorization (`clientId -> allowed keyIds`)
+- Nonce replay protection with TTL (memory or Redis backend)
 - Configurable rate limiting (memory or Redis)
 - `validUntil` max-window enforcement
 - Chain-id allowlisting
-- Optional multi-key routing via `keyId` (backward compatible default key)
+- Optional multi-key routing via `keyId` (with default key fallback)
 - Selector denylist + session self-call block
 - Inbound/outbound leak scanner (`block` or `warn`)
-- Structured JSON audit logs
+- Structured JSON logs for auditability
+
+## Security Model (No Hand-Waving)
+
+SISNA is a defense-in-depth boundary:
+
+1. **Key isolation**
+   - private keys stay in signer process only
+   - clients send unsigned payloads
+2. **Request authentication**
+   - HMAC + timestamp + nonce
+   - optional client ID routing and per-client key authorization
+3. **Replay resistance**
+   - nonce one-time consumption with TTL
+   - memory backend for local/dev, Redis backend for distributed deployments
+4. **Execution policy enforcement**
+   - chain-id allowlist
+   - `validUntil` horizon check
+   - denied selectors and self-target protections
+5. **Operational abuse controls**
+   - request rate limits
+   - leak scanner on inbound/outbound payload surfaces
+
+The point is not "the agent is trustworthy".
+The point is "the signer boundary is strict enough to reject unsafe requests even when upstream logic is wrong".
 
 ## Development
 
@@ -44,13 +80,22 @@ npm install
 npm run dev
 ```
 
-`NODE_ENV=production` now enforces:
-- `KEYRING_TRANSPORT=https`
-- `KEYRING_MTLS_REQUIRED=true`
+Run tests:
 
-## Transport & mTLS
+```bash
+npm test
+```
 
-- `KEYRING_TRANSPORT=http` (default) for local development.
+Build:
+
+```bash
+npm run build
+npm start
+```
+
+## Transport and mTLS
+
+- `KEYRING_TRANSPORT=http` for local development
 - `KEYRING_TRANSPORT=https` requires:
   - `KEYRING_TLS_CERT_PATH`
   - `KEYRING_TLS_KEY_PATH`
@@ -69,11 +114,10 @@ KEYRING_TLS_CA_PATH=./certs/ca.crt
 
 ## Replay Protection Modes
 
-- `memory` (default): single-instance replay protection (good for local/dev).
-- `redis`: distributed replay protection for multi-instance production deployments.
-- Prefix defaults still use `starknet-keyring-proxy:*` for backward compatibility and can be overridden.
+- `memory` (default): single-instance replay protection (good for local/dev)
+- `redis`: distributed replay protection for multi-instance production deployments
 
-When using Redis:
+Redis example:
 
 ```bash
 KEYRING_REPLAY_STORE=redis
@@ -82,8 +126,6 @@ KEYRING_REDIS_NONCE_PREFIX=starknet-keyring-proxy:nonce:
 ```
 
 ## Rate Limiting
-
-Use rate limiting before production rollout.
 
 ```bash
 KEYRING_RATE_LIMIT_ENABLED=true
@@ -94,14 +136,11 @@ KEYRING_REDIS_RATE_LIMIT_PREFIX=starknet-keyring-proxy:ratelimit:
 ```
 
 Behavior:
-- Keyed by `clientId + accountAddress + keyId`
-- Exceeds budget returns `429`
-- Response includes `x-ratelimit-remaining` and `x-ratelimit-reset-ms`
-- Redis key prefix is configurable via `KEYRING_REDIS_RATE_LIMIT_PREFIX`
+- keyed by `clientId + accountAddress + keyId`
+- over-budget requests return `429`
+- response includes `x-ratelimit-remaining` and `x-ratelimit-reset-ms`
 
 ## Leak Scanner
-
-Leak scanner detects common secret-exfiltration payloads at proxy boundary.
 
 ```bash
 KEYRING_LEAK_SCANNER_ENABLED=true
@@ -112,14 +151,7 @@ Actions:
 - `block`: fail request/response when patterns are detected
 - `warn`: log only
 
-Patterns include:
-- `STARKNET_PRIVATE_KEY`, `SESSION_PRIVATE_KEY`, `KEYRING_HMAC_SECRET`
-- JSON/kv private key fields
-- PEM private key markers
-
-## Client AuthZ
-
-Two modes are supported:
+## Client AuthZ Modes
 
 1. Backward-compatible single client:
 - set `KEYRING_HMAC_SECRET`
@@ -127,84 +159,75 @@ Two modes are supported:
 
 2. Multi-client (recommended):
 - set `KEYRING_AUTH_CLIENTS_JSON`
-- each client can have its own `hmacSecret` and `allowedKeyIds`
+- each client can have distinct `hmacSecret` and `allowedKeyIds`
 
 Example:
 
 ```bash
 KEYRING_DEFAULT_AUTH_CLIENT_ID=mcp-default
-KEYRING_AUTH_CLIENTS_JSON=[{"clientId":"mcp-default","hmacSecret":"0123456789abcdef0123456789abcdef","allowedKeyIds":["default"]},{"clientId":"mcp-ops","hmacSecret":"abcdef0123456789abcdef0123456789","allowedKeyIds":["ops"]}]
+KEYRING_AUTH_CLIENTS_JSON=[{"clientId":"mcp-default","hmacSecret":"replace-me-0001","allowedKeyIds":["default"]},{"clientId":"mcp-ops","hmacSecret":"replace-me-0002","allowedKeyIds":["ops"]}]
 ```
 
 ## API
 
 - `GET /health` (no auth)
 - `POST /v1/sign/session-transaction` (HMAC auth)
-  - Optional auth header: `X-Keyring-Client-Id` (defaults to configured default client)
-  - Optional request field: `keyId`
-  - If omitted, proxy uses `KEYRING_DEFAULT_KEY_ID`
+  - optional header: `X-Keyring-Client-Id`
+  - optional request field: `keyId`
 
-See `docs/api-spec.yaml` for request/response schema.
+See `docs/api-spec.yaml` for schema.
 
-## Security model
+## Connected Repositories
 
-- Private keys remain in this process only; clients submit unsigned payloads.
-- In-process key storage is acceptable for development and controlled environments; production
-  deployments should prefer external signing/KMS/HSM-backed keys.
-- Requests require HMAC + nonce + timestamp.
-- Replay defense is one-time nonce consumption (`memory` or `redis` backend).
-- Requests are bounded by configured chain ids and `validUntil` horizon.
-- Signer rejects owner/admin-like selectors and self-target calls.
-- Optional rate limiting and leak scanning provide additional abuse resistance.
+SISNA is part of a multi-repo stack:
 
-## Operational runbook
+1. [`keep-starknet-strange/starkclaw`](https://github.com/keep-starknet-strange/starkclaw)
+   - mobile/runtime integration client
+   - consumes SISNA signer path via `apps/mobile/lib/signer/**`
 
-- mTLS cert rotation/rollback: `docs/MTLS_RUNBOOK.md`
-- signer security proof demo: `docs/SECURITY_PROOF_DEMO.md`
+2. [`keep-starknet-strange/starknet-agentic`](https://github.com/keep-starknet-strange/starknet-agentic)
+   - canonical session-account contract lineage
+   - contract semantics that signer payloads must respect
 
-## Security Proof Demo
+Integration rule of thumb:
+- API/policy changes in SISNA must be mirrored in Starkclaw signer client and verified against session-account constraints.
 
-Run the reproducible proof script:
+## Repo Layout
 
-```bash
-chmod +x demo/run-security-proof.sh
-./demo/run-security-proof.sh
-```
+- `src/`: signer service implementation
+- `test/`: policy/auth/transport tests
+- `docs/api-spec.yaml`: API contract
+- `scripts/security/audit-gate.mjs`: dependency audit gating logic
+- `security/`: allowlists and security policy artifacts
+- `BYOA.md`: agent coordination protocol
+- `agents.md`: role/ownership guidance for multi-agent work
 
-It generates artifacts under `demo/artifacts/<timestamp>/` with:
+## Agentic-Native Development
 
-- happy-path signature proof
-- replay rejection proof
-- selector-deny policy proof
+This repository is structured for high-signal, reviewable agent collaboration:
 
-Live Sepolia e2e proof (request id -> signer log -> tx hash):
+- GitHub issues/PRs are the coordination bus
+- small vertical slices over giant refactors
+- tests first for security-sensitive behavior
+- explicit blocker escalation with trade-offs
 
-```bash
-export DEMO_SEPOLIA_RPC_URL=...
-export DEMO_ACCOUNT_ADDRESS=0x...
-export DEMO_TOKEN_ADDRESS=0x...        # token contract with transfer(recipient, u256)
-export DEMO_RECIPIENT_ADDRESS=0x...
-export DEMO_AMOUNT_RAW=1
-export SESSION_PRIVATE_KEY=0x...       # session key registered on DEMO_ACCOUNT_ADDRESS
-export KEYRING_HMAC_SECRET=0123456789abcdef0123456789abcdef
+Start with `BYOA.md` and `agents.md`.
 
-chmod +x demo/run-e2e-sepolia-proof.sh
-./demo/run-e2e-sepolia-proof.sh
-```
+## Contributing
 
-The script now runs a mandatory preflight gate first and emits:
-- `preflight-sepolia-readiness.json`
-- `preflight-sepolia-readiness.txt`
+1. Pick or open a focused issue
+2. Keep PRs small and verifiable
+3. Run `npm test` before opening PR
+4. Never log or commit secrets
 
-Preflight verifies:
-- Sepolia chain id
-- account/token deployment visibility
-- session-account entrypoint presence (`compute_session_message_hash`)
-- fee-token minimum balance (default `STRK`, configurable)
+## Security
 
-MCP production guard proof (from sibling `starknet-agentic` repo):
+This is security-sensitive software.
 
-```bash
-chmod +x demo/mcp-prod-guard.sh
-./demo/mcp-prod-guard.sh
-```
+- Do not run with real production secrets until your deployment posture is validated
+- Treat signer boundary failures as high-severity incidents
+- Report vulnerabilities privately and responsibly
+
+## License
+
+MIT. See `LICENSE`.
