@@ -7,6 +7,7 @@ on:
       - 'src/**'
       - 'docs/api-spec.yaml'
       - 'spec/interop-version.json'
+      - 'spec/interop-version.schema.json'
       - 'docs/**'
   push:
     branches: [main]
@@ -14,7 +15,12 @@ on:
       - 'src/**'
       - 'docs/api-spec.yaml'
       - 'spec/interop-version.json'
+      - 'spec/interop-version.schema.json'
       - 'docs/**'
+
+concurrency:
+  group: spec-dispatch-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref_name || github.sha }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
