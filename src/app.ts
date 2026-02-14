@@ -149,7 +149,11 @@ export function createApp(config: AppConfig) {
   );
 
   app.use((req: RequestWithContext, res, next) => {
-    req.requestId = req.header("x-request-id") ?? randomUUID();
+    req.requestId = randomUUID();
+    const callerRequestId = req.header("x-request-id");
+    if (callerRequestId) {
+      res.setHeader("x-caller-request-id", callerRequestId);
+    }
     res.setHeader("x-request-id", req.requestId);
     next();
   });
