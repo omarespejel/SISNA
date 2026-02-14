@@ -62,6 +62,26 @@ export function createHmacMiddleware(args: {
       return;
     }
 
+    const rawBody = req.rawBody ?? "";
+    const payload = buildSigningPayload({
+      timestamp: tsRaw,
+      nonce,
+      method: req.method,
+      path: req.originalUrl,
+      rawBody,
+    });
+    const expected = computeHmacHex(secret, payload);
+
+    if (!secureHexEqual(sig, expected)) {
+      args.logger.log({
+        level: "warn",
+        event: "auth.invalid_signature",
+        requestId: req.requestId,
+      });
+      res.status(401).json({ error: "invalid signature" });
+      return;
+    }
+
     try {
       const nonceAccepted = await args.nonceStore.consume(nonce, now);
       if (!nonceAccepted) {
@@ -84,26 +104,6 @@ export function createHmacMiddleware(args: {
         },
       });
       res.status(503).json({ error: "replay protection unavailable" });
-      return;
-    }
-
-    const rawBody = req.rawBody ?? "";
-    const payload = buildSigningPayload({
-      timestamp: tsRaw,
-      nonce,
-      method: req.method,
-      path: req.originalUrl,
-      rawBody,
-    });
-    const expected = computeHmacHex(secret, payload);
-
-    if (!secureHexEqual(sig, expected)) {
-      args.logger.log({
-        level: "warn",
-        event: "auth.invalid_signature",
-        requestId: req.requestId,
-      });
-      res.status(401).json({ error: "invalid signature" });
       return;
     }
 
