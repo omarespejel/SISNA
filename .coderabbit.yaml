@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+early_access: false
+
+reviews:
+  profile: "assertive"
+  request_changes_workflow: true
+  high_level_summary: true
+  review_status: true
+  collapse_walkthrough: true
+  poem: false
+  fail_commit_status: true
+  auto_review:
+    enabled: true
+    drafts: false
+
+  path_instructions:
+    - path: "src/**"
+      instructions: |
+        Treat auth, policy, signer, and transport changes as security-critical boundary code.
+        Verify replay protection, HMAC correctness, nonce/timestamp validation, strict schema
+        validation, and no secret leakage in logs or error messages.
+    - path: "docs/api-spec.yaml"
+      instructions: |
+        API spec changes must preserve compatibility assumptions used by starkclaw signer client
+        and starknet-agentic session envelope semantics. Flag undocumented contract changes.
+    - path: ".github/workflows/**"
+      instructions: |
+        Check least privilege permissions and safe CI execution practices.
+
+  pre_merge_checks:
+    custom_checks:
+      - name: "Spec impact declaration"
+        mode: error
+        instructions: |
+          If this PR changes src/**, docs/api-spec.yaml, docs/**, or .github/workflows/**,
+          the PR description must include "Spec impact" with either "none" or explicit
+          compatibility/migration notes.
+      - name: "Cross-repo boundary awareness"
+        mode: error
+        instructions: |
+          For boundary changes, the PR description must acknowledge impacted counterpart repos:
+          keep-starknet-strange/starkclaw and keep-starknet-strange/starknet-agentic.
+      - name: "Security rationale for signer boundary"
+        mode: warning
+        instructions: |
+          For changes to auth/policy/signer/transport paths, require a concise security rationale
+          and expected threat-model impact.
+
+chat:
+  auto_reply: false
