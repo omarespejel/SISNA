@@ -16,12 +16,12 @@ const baseConfig: AppConfig = {
   AUTH_CLIENTS: [
     {
       clientId: "mcp-default",
-      hmacSecret: "0123456789abcdef0123456789abcdef",
+      hmacSecret: "not-a-real-hmac-secret-change-me-0001",
       allowedKeyIds: ["default"],
     },
     {
       clientId: "mcp-ops",
-      hmacSecret: "abcdef0123456789abcdef0123456789",
+      hmacSecret: "not-a-real-hmac-secret-change-me-0002",
       allowedKeyIds: ["ops"],
     },
   ],
@@ -168,7 +168,7 @@ describe("sign route", () => {
       .post("/v1/sign/session-transaction")
       .set(authHeaders(bodyRaw, "nonce-unknown-client", {
         clientId: "ghost-client",
-        secret: "0123456789abcdef0123456789abcdef",
+        secret: "not-a-real-hmac-secret-change-me-0003",
       }))
       .send(bodyRaw);
 
