@@ -86,10 +86,10 @@ jobs:
       - name: Validate boundary invariants
         run: |
           set -euo pipefail
-          rg -n "name: X-Keyring-Signature" docs/api-spec.yaml
-          rg -n "- X-Keyring-Timestamp" docs/api-spec.yaml
-          rg -n "- X-Keyring-Nonce" docs/api-spec.yaml
-          rg -n "validUntil:" docs/api-spec.yaml
-          rg -n "/v1/sign/session-transaction:" docs/api-spec.yaml
-          rg -n "parsed\.signature\.length !== 4" /tmp/starkclaw/apps/mobile/lib/signer/keyring-proxy-signer.ts
-          rg -n "if signature\.len\(\) == 4" /tmp/starknet-agentic/contracts/session-account/src/account.cairo
+          grep -nE "name: X-Keyring-Signature" docs/api-spec.yaml
+          grep -nE -- "- X-Keyring-Timestamp" docs/api-spec.yaml
+          grep -nE -- "- X-Keyring-Nonce" docs/api-spec.yaml
+          grep -nE "validUntil:" docs/api-spec.yaml
+          grep -nE "/v1/sign/session-transaction:" docs/api-spec.yaml
+          grep -nE "parsed\\.signature\\.length !== 4" /tmp/starkclaw/apps/mobile/lib/signer/keyring-proxy-signer.ts
+          grep -nE "if signature\\.len\\(\\) == 4" /tmp/starknet-agentic/contracts/session-account/src/account.cairo
