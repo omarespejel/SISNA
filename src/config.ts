@@ -58,6 +58,10 @@ const EnvSchema = z.object({
   KEYRING_REDIS_RATE_LIMIT_PREFIX: z.string().default("starknet-keyring-proxy:ratelimit:"),
   KEYRING_LEAK_SCANNER_ENABLED: z.string().default("false").transform(parseBoolean),
   KEYRING_LEAK_SCANNER_ACTION: z.enum(["block", "warn"]).default("block"),
+  KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION: z
+    .string()
+    .default("false")
+    .transform(parseBoolean),
   KEYRING_DEFAULT_KEY_ID: z.string().min(1).default("default"),
   KEYRING_SIGNING_KEYS_JSON: z.string().default(""),
   SESSION_PRIVATE_KEY: z.string().startsWith("0x").optional(),
@@ -93,6 +97,7 @@ export type AppConfig = {
   KEYRING_REDIS_RATE_LIMIT_PREFIX: string;
   KEYRING_LEAK_SCANNER_ENABLED: boolean;
   KEYRING_LEAK_SCANNER_ACTION: "block" | "warn";
+  KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION: boolean;
   KEYRING_DEFAULT_KEY_ID: string;
   SIGNING_KEYS: SigningKeyConfig[];
 };
@@ -249,6 +254,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     if (redisRequired && parsed.KEYRING_REDIS_URL && !parsed.KEYRING_REDIS_URL.startsWith("rediss://")) {
       throw new Error("NODE_ENV=production requires KEYRING_REDIS_URL to use rediss://");
     }
+    if (!parsed.KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION) {
+      throw new Error(
+        "NODE_ENV=production requires explicit KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION=true until external KMS/HSM signer mode is enabled",
+      );
+    }
   }
 
   return {
@@ -277,6 +287,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     KEYRING_REDIS_RATE_LIMIT_PREFIX: parsed.KEYRING_REDIS_RATE_LIMIT_PREFIX,
     KEYRING_LEAK_SCANNER_ENABLED: parsed.KEYRING_LEAK_SCANNER_ENABLED,
     KEYRING_LEAK_SCANNER_ACTION: parsed.KEYRING_LEAK_SCANNER_ACTION,
+    KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION:
+      parsed.KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION,
     KEYRING_DEFAULT_KEY_ID: parsed.KEYRING_DEFAULT_KEY_ID,
     SIGNING_KEYS: signingKeys,
   };
