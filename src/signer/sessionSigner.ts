@@ -53,7 +53,12 @@ export class SessionTransactionSigner {
     }
     const allowedAccounts = this.allowedAccountsByClient.get(clientId);
     if (allowedAccounts) {
-      const normalized = normalizeFelt(req.accountAddress);
+      let normalized: string;
+      try {
+        normalized = normalizeFelt(req.accountAddress);
+      } catch {
+        throw new PolicyError(`invalid felt value: ${req.accountAddress}`);
+      }
       if (!allowedAccounts.has(normalized)) {
         throw new PolicyError(`client ${clientId} is not allowed to sign for account ${req.accountAddress}`);
       }

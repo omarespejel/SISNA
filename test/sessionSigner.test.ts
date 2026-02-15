@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ec, hash, num } from "starknet";
 import { SessionTransactionSigner } from "../src/signer/sessionSigner.js";
+import { PolicyError } from "../src/signer/policy.js";
 
 const CURVE_ORDER = BigInt(
   "3618502788666131213697322783095070105526743751716087489154079457884512865583",
@@ -79,5 +80,29 @@ describe("SessionTransactionSigner canonical s", () => {
     expect(outS).toBeLessThanOrEqual(halfOrder);
     expect(num.toHex(outS)).toBe(num.toHex(expectedCanonicalS));
   });
-});
 
+  it("normalizes malformed accountAddress failures into PolicyError", () => {
+    const signer = new SessionTransactionSigner(
+      [{ keyId: "default", privateKey: "0x1", publicKey: undefined }],
+      "default",
+      new Map(),
+      new Map([["client", new Set(["0x111"])]]),
+      { maxValidityWindowSec: 24 * 60 * 60, allowedChainIds: new Set() },
+    );
+
+    expect(() =>
+      signer.sign({
+        accountAddress: "-1",
+        chainId: "0x534e5f5345504f4c4941",
+        nonce: "0x1",
+        validUntil: Math.floor(Date.now() / 1000) + 3600,
+        calls: [
+          {
+            contractAddress: "0x222",
+            entrypoint: "transfer",
+            calldata: ["0x1", "0x0"],
+          },
+        ],
+      }, "client")).toThrow(PolicyError);
+  });
+});
