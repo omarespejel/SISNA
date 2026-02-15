@@ -22,3 +22,4 @@ Include:
   For production, prefer an external signer/KMS/HSM pattern.
 - In production mode (`NODE_ENV=production`), TLS + mTLS are mandatory.
 - When Redis is used in production, `KEYRING_REDIS_URL` must use `rediss://`.
+- Remaining hardening work is tracked in `docs/SECURITY_BACKLOG.md`.

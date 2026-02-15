@@ -236,6 +236,7 @@ This is security-sensitive software.
 - Do not run with real production secrets until your deployment posture is validated
 - Treat signer boundary failures as high-severity incidents
 - Report vulnerabilities privately and responsibly
+- Track remaining hardening work in `docs/SECURITY_BACKLOG.md` (critical open item: external KMS/HSM signer backend)
 
 ## License
 
