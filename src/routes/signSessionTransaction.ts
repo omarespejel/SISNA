@@ -96,6 +96,9 @@ export function signSessionRouter(args: {
         event: "sign.session_transaction.success",
         requestId: req.requestId,
         details: {
+          signatureMode: result.signatureMode,
+          domainHash: result.domainHash,
+          messageHash: result.messageHash,
           accountAddress: parsed.accountAddress,
           keyId: parsed.keyId,
           calls: parsed.calls.length,
@@ -108,6 +111,8 @@ export function signSessionRouter(args: {
 
       const responsePayload = {
         requestId: req.requestId,
+        signatureMode: result.signatureMode,
+        domainHash: result.domainHash,
         messageHash: result.messageHash,
         sessionPublicKey: result.sessionPublicKey,
         signature: result.signature,
