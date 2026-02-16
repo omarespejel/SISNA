@@ -27,7 +27,7 @@ describe("normalizeFelt", () => {
   });
 
   it("rejects values outside felt252 field range", () => {
-    expect(() => normalizeFelt("0x800000000000011000000000000000000000000000000000000000000000000"))
+    expect(() => normalizeFelt("0x800000000000011000000000000000000000000000000000000000000000001"))
       .toThrow(/invalid felt value/i);
   });
 });
