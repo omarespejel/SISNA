@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const HexFelt = z.string().regex(/^0x[0-9a-fA-F]{1,64}$/, "Must be a 0x-prefixed hex string (max 32 bytes)");
 const DecimalOrHexFelt = HexFelt.or(z.string().regex(/^\d{1,78}$/, "Must be a decimal string (max 78 digits)"));
+const MAX_TOTAL_CALLDATA_ELEMENTS = 2048;
 
 export const CallSchema = z.object({
   contractAddress: HexFelt,
@@ -18,11 +19,20 @@ export const SignSessionTransactionRequestSchema = z.object({
   calls: z.array(CallSchema).min(1).max(64),
   context: z
     .object({
-      requester: z.string().optional(),
-      tool: z.string().optional(),
-      reason: z.string().optional(),
+      requester: z.string().max(128).optional(),
+      tool: z.string().max(64).optional(),
+      reason: z.string().max(512).optional(),
     })
     .optional(),
+}).superRefine((value, ctx) => {
+  const totalCalldata = value.calls.reduce((sum, call) => sum + call.calldata.length, 0);
+  if (totalCalldata > MAX_TOTAL_CALLDATA_ELEMENTS) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `Total calldata elements exceed ${MAX_TOTAL_CALLDATA_ELEMENTS}`,
+      path: ["calls"],
+    });
+  }
 });
 
 export type SignSessionTransactionRequest = z.infer<typeof SignSessionTransactionRequestSchema>;

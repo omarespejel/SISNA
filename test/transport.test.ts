@@ -3,6 +3,7 @@ import { buildHttpsServerOptions } from "../src/transport/server.js";
 import type { AppConfig } from "../src/config.js";
 
 const baseConfig: AppConfig = {
+  NODE_ENV: "test",
   PORT: 8545,
   HOST: "127.0.0.1",
   KEYRING_TRANSPORT: "https",
@@ -50,4 +51,3 @@ describe("transport tls", () => {
     expect(readFile).toHaveBeenCalledTimes(2);
   });
 });
-

@@ -70,7 +70,20 @@ paths:
       responses:
         '200':
           description: Signature produced
+          headers:
+            x-ratelimit-remaining:
+              schema:
+                type: string
+            x-ratelimit-reset-ms:
+              schema:
+                type: string
         '401':
           description: Authentication failed
+        '400':
+          description: Invalid request payload
+        '429':
+          description: Rate limit exceeded
+        '503':
+          description: Replay protection or rate-limit backend unavailable
         '422':
-          description: Policy violation (self-call, denied selector, invalid chainId, or invalid validUntil)
+          description: Policy or scanner violation (self-call, denied selector, invalid chainId, invalid validUntil, or detected secret-leak patterns)
