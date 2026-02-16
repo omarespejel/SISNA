@@ -211,11 +211,13 @@ describe("config loading", () => {
       KEYRING_TLS_KEY_PATH: "/tmp/server.key",
       KEYRING_TLS_CA_PATH: "/tmp/ca.crt",
       KEYRING_MTLS_REQUIRED: "true",
+      KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION: "true",
     });
 
     expect(cfg.NODE_ENV).toBe("production");
     expect(cfg.KEYRING_TRANSPORT).toBe("https");
     expect(cfg.KEYRING_MTLS_REQUIRED).toBe(true);
+    expect(cfg.KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION).toBe(true);
   });
 
   it("requires rediss url in production when redis replay store is enabled", () => {
@@ -247,9 +249,25 @@ describe("config loading", () => {
       KEYRING_MTLS_REQUIRED: "true",
       KEYRING_REPLAY_STORE: "redis",
       KEYRING_REDIS_URL: "rediss://localhost:6379",
+      KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION: "true",
     });
 
     expect(cfg.KEYRING_REDIS_URL).toBe("rediss://localhost:6379");
+  });
+
+  it("requires explicit insecure key custody acknowledgement in production", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        NODE_ENV: "production",
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_TRANSPORT: "https",
+        KEYRING_TLS_CERT_PATH: "/tmp/server.crt",
+        KEYRING_TLS_KEY_PATH: "/tmp/server.key",
+        KEYRING_TLS_CA_PATH: "/tmp/ca.crt",
+        KEYRING_MTLS_REQUIRED: "true",
+      }),
+    ).toThrow(/KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION=true/i);
   });
 
   it("requires auth config via keyring secret or auth clients json", () => {

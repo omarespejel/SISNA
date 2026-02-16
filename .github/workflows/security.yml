@@ -6,10 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   secret-scan:
     name: Secret Scan (gitleaks)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6.0.2
 
@@ -30,6 +35,8 @@ jobs:
   dependency-audit:
     name: Dependency Audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6.0.2
 

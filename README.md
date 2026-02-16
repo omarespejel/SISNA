@@ -110,7 +110,16 @@ KEYRING_MTLS_REQUIRED=true
 KEYRING_TLS_CERT_PATH=./certs/server.crt
 KEYRING_TLS_KEY_PATH=./certs/server.key
 KEYRING_TLS_CA_PATH=./certs/ca.crt
+# Explicit acknowledgement for current in-process key custody mode.
+# Keep false by default and only set true when you accept this risk.
+KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION=true
 ```
+
+Production guard:
+- `NODE_ENV=production` fails startup unless
+  `KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION=true` is explicitly set.
+- This guard prevents silently running with in-process private keys.
+- Target end-state is external KMS/HSM-backed signing mode.
 
 ## Replay Protection Modes
 
@@ -227,6 +236,7 @@ This is security-sensitive software.
 - Do not run with real production secrets until your deployment posture is validated
 - Treat signer boundary failures as high-severity incidents
 - Report vulnerabilities privately and responsibly
+- Track remaining hardening work in `docs/SECURITY_BACKLOG.md` (critical open item: external KMS/HSM signer backend)
 
 ## License
 

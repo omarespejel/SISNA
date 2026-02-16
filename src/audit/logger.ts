@@ -1,3 +1,5 @@
+import pino from "pino";
+
 export type AuditLevel = "debug" | "info" | "warn" | "error";
 
 export type AuditEvent = {
@@ -8,32 +10,27 @@ export type AuditEvent = {
 };
 
 export class AuditLogger {
-  constructor(private readonly minLevel: AuditLevel = "info") {}
+  private readonly logger;
+
+  constructor(minLevel: AuditLevel = "info") {
+    this.logger = pino(
+      {
+        level: minLevel,
+        base: undefined,
+        timestamp: () => `,"ts":"${new Date().toISOString()}"`,
+        formatters: {
+          level: (label) => ({ level: label }),
+        },
+      },
+      pino.destination({ sync: false }),
+    );
+  }
 
   log(payload: AuditEvent): void {
-    if (!shouldLog(this.minLevel, payload.level)) {
-      return;
-    }
-
-    const line = {
-      ts: new Date().toISOString(),
-      level: payload.level,
+    this.logger[payload.level]({
       event: payload.event,
       request_id: payload.requestId,
       details: payload.details ?? {},
-    };
-
-    process.stdout.write(`${JSON.stringify(line)}\n`);
+    });
   }
-}
-
-function shouldLog(min: AuditLevel, target: AuditLevel): boolean {
-  const rank: Record<AuditLevel, number> = {
-    debug: 10,
-    info: 20,
-    warn: 30,
-    error: 40,
-  };
-
-  return rank[target] >= rank[min];
 }

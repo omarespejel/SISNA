@@ -15,10 +15,7 @@ import { LeakScanner } from "./security/leakScanner.js";
 import { InMemoryRateLimiter, type RateLimiter } from "./security/rateLimiter.js";
 import { RedisRateLimiter } from "./security/redisRateLimiter.js";
 import type { RequestWithContext } from "./types/http.js";
-
-function normalizeFelt(value: string): string {
-  return `0x${BigInt(value).toString(16)}`.toLowerCase();
-}
+import { normalizeFelt } from "./utils/felt.js";
 
 function createSharedRedisClient(config: AppConfig, logger: AuditLogger): Redis | undefined {
   const needsReplayRedis = config.KEYRING_REPLAY_STORE === "redis";
@@ -170,6 +167,22 @@ export function createApp(config: AppConfig) {
     }
     res.setHeader("x-request-id", req.requestId);
     next();
+  });
+
+  app.use((req: RequestWithContext, res, next) => {
+    const origin = req.header("origin");
+    if (!origin) {
+      next();
+      return;
+    }
+
+    logger.log({
+      level: "warn",
+      event: "cors.origin_rejected",
+      requestId: req.requestId,
+      details: { origin },
+    });
+    res.status(403).json({ error: "browser origins are not allowed" });
   });
 
   app.use(healthRouter());

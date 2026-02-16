@@ -34,32 +34,26 @@ SESSION_PRIVATE_KEY=0x1
 DEMO_OUT_DIR=demo/artifacts/my-run
 ```
 
-## MCP Production Guard Evidence
+## Production Key Custody Guard Evidence
 
-Automated check (expects local sibling repo `../starknet-agentic`):
-
-```bash
-chmod +x demo/mcp-prod-guard.sh
-./demo/mcp-prod-guard.sh
-```
-
-Manual check:
+Manual check (from this repo):
 
 ```bash
 npm run build
 NODE_ENV=production \
-STARKNET_RPC_URL=https://starknet-sepolia.public.blastapi.io/rpc/v0_8 \
-STARKNET_ACCOUNT_ADDRESS=0x123 \
-STARKNET_SIGNER_MODE=proxy \
-KEYRING_PROXY_URL=http://127.0.0.1:8545 \
+KEYRING_TRANSPORT=https \
+KEYRING_TLS_CERT_PATH=/tmp/server.crt \
+KEYRING_TLS_KEY_PATH=/tmp/server.key \
+KEYRING_TLS_CA_PATH=/tmp/ca.crt \
+KEYRING_MTLS_REQUIRED=true \
 KEYRING_HMAC_SECRET=0123456789abcdef0123456789abcdef \
-STARKNET_PRIVATE_KEY=0x1 \
+SESSION_PRIVATE_KEY=0x1 \
 node dist/index.js
 ```
 
 Expected error:
 
-`STARKNET_PRIVATE_KEY must not be set in production when STARKNET_SIGNER_MODE=proxy`
+`NODE_ENV=production requires explicit KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION=true until external KMS/HSM signer mode is enabled`
 
 ## Optional End-to-End Tx Evidence
 

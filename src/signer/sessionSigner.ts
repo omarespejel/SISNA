@@ -2,6 +2,7 @@ import { ec, hash, num, shortString } from "starknet";
 import type { SignSessionTransactionRequest } from "../types/api.js";
 import { PolicyError, assertSigningPolicy, type SigningPolicyConfig } from "./policy.js";
 import type { SigningKeyConfig } from "../config.js";
+import { normalizeFelt } from "../utils/felt.js";
 
 const STARKNET_DOMAIN_TYPE_HASH_REV1 =
   "0x1ff2f602e42168014d405a94f75e8a93d640751d71d16311266e140d8b0a210";
@@ -59,19 +60,22 @@ export class SessionTransactionSigner {
     if (allowedKeyIds && !allowedKeyIds.has(requestedKeyId)) {
       throw new PolicyError(`client ${clientId} is not allowed to use keyId ${requestedKeyId}`);
     }
+    let normalizedAccount: string;
+    try {
+      normalizedAccount = normalizeFelt(req.accountAddress);
+    } catch {
+      throw new PolicyError(`invalid felt value: ${req.accountAddress}`);
+    }
     const allowedAccounts = this.allowedAccountsByClient.get(clientId);
-    if (allowedAccounts) {
-      const normalized = `0x${BigInt(req.accountAddress).toString(16)}`.toLowerCase();
-      if (!allowedAccounts.has(normalized)) {
-        throw new PolicyError(`client ${clientId} is not allowed to sign for account ${req.accountAddress}`);
-      }
+    if (allowedAccounts && !allowedAccounts.has(normalizedAccount)) {
+      throw new PolicyError(`client ${clientId} is not allowed to sign for account ${req.accountAddress}`);
     }
     const key = this.signingKeysById.get(requestedKeyId);
     if (!key) {
       throw new PolicyError(`Unknown keyId: ${requestedKeyId}`);
     }
 
-    const accountAddressHex = num.toHex(BigInt(req.accountAddress));
+    const accountAddressHex = num.toHex(BigInt(normalizedAccount));
     const chainIdHex = num.toHex(BigInt(req.chainId));
     const nonceHex = num.toHex(BigInt(req.nonce));
     const validUntilHex = num.toHex(req.validUntil);
