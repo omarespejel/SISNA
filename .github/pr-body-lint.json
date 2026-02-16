@@ -1,0 +1,21 @@
+{
+  "requiredHeadings": [
+    "Cross-repo impact",
+    "What",
+    "Spec impact",
+    "Security rationale",
+    "Validation",
+    "Risk notes",
+    "Checklist"
+  ],
+  "boundaryPatterns": [
+    ".github/workflows/",
+    "src/",
+    "docs/"
+  ],
+  "counterpartRepos": [
+    "keep-starknet-strange/starkclaw",
+    "keep-starknet-strange/starknet-agentic"
+  ]
+}
+
