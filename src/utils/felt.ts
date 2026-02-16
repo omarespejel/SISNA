@@ -1,3 +1,5 @@
+const FELT_PRIME = (2n ** 251n) + (17n * (2n ** 192n)) + 1n;
+
 export function normalizeFelt(value: string): string {
   const candidate = value.trim();
   if (candidate.length === 0) {
@@ -12,6 +14,10 @@ export function normalizeFelt(value: string): string {
   }
 
   if (felt < 0n) {
+    throw new Error(`invalid felt value: ${value}`);
+  }
+
+  if (felt >= FELT_PRIME) {
     throw new Error(`invalid felt value: ${value}`);
   }
 

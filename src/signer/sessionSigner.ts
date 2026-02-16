@@ -51,17 +51,15 @@ export class SessionTransactionSigner {
     if (allowedKeyIds && !allowedKeyIds.has(requestedKeyId)) {
       throw new PolicyError(`client ${clientId} is not allowed to use keyId ${requestedKeyId}`);
     }
+    let normalizedAccount: string;
+    try {
+      normalizedAccount = normalizeFelt(req.accountAddress);
+    } catch {
+      throw new PolicyError(`invalid felt value: ${req.accountAddress}`);
+    }
     const allowedAccounts = this.allowedAccountsByClient.get(clientId);
-    if (allowedAccounts) {
-      let normalized: string;
-      try {
-        normalized = normalizeFelt(req.accountAddress);
-      } catch {
-        throw new PolicyError(`invalid felt value: ${req.accountAddress}`);
-      }
-      if (!allowedAccounts.has(normalized)) {
-        throw new PolicyError(`client ${clientId} is not allowed to sign for account ${req.accountAddress}`);
-      }
+    if (allowedAccounts && !allowedAccounts.has(normalizedAccount)) {
+      throw new PolicyError(`client ${clientId} is not allowed to sign for account ${req.accountAddress}`);
     }
     const key = this.signingKeysById.get(requestedKeyId);
     if (!key) {
@@ -69,7 +67,7 @@ export class SessionTransactionSigner {
     }
 
     const hashData: bigint[] = [
-      BigInt(req.accountAddress),
+      BigInt(normalizedAccount),
       BigInt(req.chainId),
       BigInt(req.nonce),
       BigInt(req.validUntil),
