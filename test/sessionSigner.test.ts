@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ec, hash, num } from "starknet";
+import { ec, hash, num, shortString } from "starknet";
 import { SessionTransactionSigner } from "../src/signer/sessionSigner.js";
 import { PolicyError } from "../src/signer/policy.js";
 
@@ -7,28 +7,53 @@ const CURVE_ORDER = BigInt(
   "3618502788666131213697322783095070105526743751716087489154079457884512865583",
 );
 
+const STARKNET_DOMAIN_TYPE_HASH_REV1 =
+  "0x1ff2f602e42168014d405a94f75e8a93d640751d71d16311266e140d8b0a210";
+const SESSION_DOMAIN_NAME = shortString.encodeShortString("Session.transaction");
+const STARKNET_MESSAGE_PREFIX = shortString.encodeShortString("StarkNet Message");
+const SESSION_DOMAIN_VERSION = num.toHex(2);
+const SNIP12_REVISION = num.toHex(1);
+
 function computeMessageHash(req: any): string {
-  const hashData: bigint[] = [
-    BigInt(req.accountAddress),
-    BigInt(req.chainId),
-    BigInt(req.nonce),
-    BigInt(req.validUntil),
+  const accountAddressHex = num.toHex(BigInt(req.accountAddress));
+  const chainIdHex = num.toHex(BigInt(req.chainId));
+  const nonceHex = num.toHex(BigInt(req.nonce));
+  const validUntilHex = num.toHex(req.validUntil);
+
+  const hashData: string[] = [
+    accountAddressHex,
+    chainIdHex,
+    nonceHex,
+    validUntilHex,
   ];
 
   for (const call of req.calls) {
-    hashData.push(BigInt(call.contractAddress));
+    hashData.push(num.toHex(BigInt(call.contractAddress)));
     const selector = call.entrypoint.startsWith("0x")
       ? BigInt(call.entrypoint)
       : BigInt(hash.getSelectorFromName(call.entrypoint));
-    hashData.push(selector);
+    hashData.push(num.toHex(selector));
 
-    hashData.push(BigInt(call.calldata.length));
+    hashData.push(num.toHex(call.calldata.length));
     for (const d of call.calldata) {
-      hashData.push(BigInt(d));
+      hashData.push(num.toHex(BigInt(d)));
     }
   }
 
-  return hash.computePoseidonHashOnElements(hashData.map((x) => num.toHex(x)));
+  const payloadHash = hash.computePoseidonHashOnElements(hashData);
+  const domainHash = hash.computePoseidonHashOnElements([
+    STARKNET_DOMAIN_TYPE_HASH_REV1,
+    SESSION_DOMAIN_NAME,
+    SESSION_DOMAIN_VERSION,
+    chainIdHex,
+    SNIP12_REVISION,
+  ]);
+  return hash.computePoseidonHashOnElements([
+    STARKNET_MESSAGE_PREFIX,
+    domainHash,
+    accountAddressHex,
+    payloadHash,
+  ]);
 }
 
 describe("SessionTransactionSigner canonical s", () => {
@@ -76,11 +101,20 @@ describe("SessionTransactionSigner canonical s", () => {
     const expectedCanonicalS = rawS > halfOrder ? CURVE_ORDER - rawS : rawS;
 
     const res = signer.sign(req, "client");
+    const chainIdHex = num.toHex(BigInt(req.chainId));
+    const expectedDomainHash = hash.computePoseidonHashOnElements([
+      STARKNET_DOMAIN_TYPE_HASH_REV1,
+      SESSION_DOMAIN_NAME,
+      SESSION_DOMAIN_VERSION,
+      chainIdHex,
+      SNIP12_REVISION,
+    ]);
     const outS = BigInt(res.signature[2]);
     expect(outS).toBeLessThanOrEqual(halfOrder);
     expect(num.toHex(outS)).toBe(num.toHex(expectedCanonicalS));
+    expect(res.signatureMode).toBe("v2_snip12");
+    expect(res.domainHash).toBe(expectedDomainHash);
   });
-
   it("normalizes malformed accountAddress failures into PolicyError", () => {
     const signer = new SessionTransactionSigner(
       [{ keyId: "default", privateKey: "0x1", publicKey: undefined }],

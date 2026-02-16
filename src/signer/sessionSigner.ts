@@ -1,11 +1,20 @@
-import { ec, hash, num } from "starknet";
+import { ec, hash, num, shortString } from "starknet";
 import type { SignSessionTransactionRequest } from "../types/api.js";
 import { PolicyError, assertSigningPolicy, type SigningPolicyConfig } from "./policy.js";
 import type { SigningKeyConfig } from "../config.js";
 import { normalizeFelt } from "../utils/felt.js";
 
+const STARKNET_DOMAIN_TYPE_HASH_REV1 =
+  "0x1ff2f602e42168014d405a94f75e8a93d640751d71d16311266e140d8b0a210";
+const SESSION_DOMAIN_NAME = shortString.encodeShortString("Session.transaction");
+const STARKNET_MESSAGE_PREFIX = shortString.encodeShortString("StarkNet Message");
+const SESSION_DOMAIN_VERSION = num.toHex(2);
+const SNIP12_REVISION = num.toHex(1);
+
 export type SignatureResult = {
   sessionPublicKey: string;
+  signatureMode: "v2_snip12";
+  domainHash: string;
   messageHash: string;
   signature: [string, string, string, string];
 };
@@ -66,28 +75,46 @@ export class SessionTransactionSigner {
       throw new PolicyError(`Unknown keyId: ${requestedKeyId}`);
     }
 
-    const hashData: bigint[] = [
-      BigInt(normalizedAccount),
-      BigInt(req.chainId),
-      BigInt(req.nonce),
-      BigInt(req.validUntil),
+    const accountAddressHex = num.toHex(BigInt(normalizedAccount));
+    const chainIdHex = num.toHex(BigInt(req.chainId));
+    const nonceHex = num.toHex(BigInt(req.nonce));
+    const validUntilHex = num.toHex(req.validUntil);
+
+    const hashData: string[] = [
+      accountAddressHex,
+      chainIdHex,
+      nonceHex,
+      validUntilHex,
     ];
 
     for (const call of req.calls) {
-      hashData.push(BigInt(call.contractAddress));
+      hashData.push(num.toHex(BigInt(call.contractAddress)));
 
       const selector = call.entrypoint.startsWith("0x")
         ? BigInt(call.entrypoint)
         : BigInt(hash.getSelectorFromName(call.entrypoint));
-      hashData.push(selector);
+      hashData.push(num.toHex(selector));
 
-      hashData.push(BigInt(call.calldata.length));
+      hashData.push(num.toHex(call.calldata.length));
       for (const d of call.calldata) {
-        hashData.push(BigInt(d));
+        hashData.push(num.toHex(BigInt(d)));
       }
     }
 
-    const messageHash = hash.computePoseidonHashOnElements(hashData.map((x) => num.toHex(x)));
+    const payloadHash = hash.computePoseidonHashOnElements(hashData);
+    const domainHash = hash.computePoseidonHashOnElements([
+      STARKNET_DOMAIN_TYPE_HASH_REV1,
+      SESSION_DOMAIN_NAME,
+      SESSION_DOMAIN_VERSION,
+      chainIdHex,
+      SNIP12_REVISION,
+    ]);
+    const messageHash = hash.computePoseidonHashOnElements([
+      STARKNET_MESSAGE_PREFIX,
+      domainHash,
+      accountAddressHex,
+      payloadHash,
+    ]);
     const rawSig = ec.starkCurve.sign(messageHash, key.privateKey);
 
     // Enforce canonical s (s <= n/2) to prevent signature malleability.
@@ -101,12 +128,14 @@ export class SessionTransactionSigner {
 
     return {
       sessionPublicKey: key.sessionPublicKey,
+      signatureMode: "v2_snip12",
+      domainHash,
       messageHash,
       signature: [
         key.sessionPublicKey,
         num.toHex(rawSig.r),
         num.toHex(canonicalS),
-        num.toHex(req.validUntil),
+        validUntilHex,
       ],
     };
   }
