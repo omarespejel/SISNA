@@ -156,7 +156,8 @@ export function signSessionRouter(args: {
           event: "sign.session_transaction.signer_unavailable",
           requestId: req.requestId,
           details: {
-            error: err.message,
+            error: "signer unavailable",
+            errorName: err.name,
           },
         });
         res.status(503).json({ error: "signer unavailable" });

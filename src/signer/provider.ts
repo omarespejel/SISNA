@@ -106,7 +106,7 @@ class DfnsSessionSignerProvider implements SessionSigner {
         const message = typeof payload === "object" && payload && "error" in payload
           ? String((payload as { error: unknown }).error)
           : `DFNS signer returned HTTP ${response.status}`;
-        if (response.status >= 400 && response.status < 500) {
+        if (response.status === 400 || response.status === 422) {
           throw new PolicyError(message);
         }
         throw new SignerUnavailableError(message);

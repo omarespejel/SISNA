@@ -81,12 +81,14 @@ jobs:
           if ! curl -fsSL \
             https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/spec/session-signature-v2.schema.json \
             -o /tmp/agentic-session-signature-v2.schema.json; then
+            echo "::warning::starknet-agentic schema not published yet on main; skipping parity check."
             echo "starknet-agentic schema not published yet on main; skipping parity check."
             exit 0
           fi
           if ! curl -fsSL \
             https://raw.githubusercontent.com/keep-starknet-strange/starknet-agentic/main/spec/session-signature-v2.json \
             -o /tmp/agentic-session-signature-v2.json; then
+            echo "::warning::starknet-agentic vector file not published yet on main; skipping parity check."
             echo "starknet-agentic vector file not published yet on main; skipping parity check."
             exit 0
           fi
