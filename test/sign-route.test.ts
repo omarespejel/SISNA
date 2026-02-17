@@ -213,7 +213,7 @@ describe("sign route", () => {
       expect(parsedBody.signatureMode).toBe("v2_snip12");
       return {
         ok: true,
-        json: async () => buildDfnsSignatureResponse(parsedBody.request, "0x12345"),
+        json: async () => buildDfnsSignatureResponse(parsedBody.request, "0x1"),
       } as any;
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -247,7 +247,7 @@ describe("sign route", () => {
       return {
         ok: true,
         json: async () =>
-          buildDfnsSignatureResponse(parsedBody.request, "0x12345", {
+          buildDfnsSignatureResponse(parsedBody.request, "0x1", {
             messageHash: "0x1234",
           }),
       } as any;
