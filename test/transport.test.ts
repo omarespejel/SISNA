@@ -16,7 +16,7 @@ const baseConfig: AppConfig = {
   AUTH_CLIENTS: [
     {
       clientId: "default",
-      hmacSecret: "0123456789abcdef0123456789abcdef",
+      hmacSecret: "test-hmac-secret",
     },
   ],
   KEYRING_MAX_SKEW_MS: 60_000,
