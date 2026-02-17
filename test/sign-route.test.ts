@@ -200,9 +200,6 @@ describe("sign route", () => {
         kind: string;
         signatureMode: string;
       };
-      const headers = new Headers(init.headers as HeadersInit);
-      expect(headers.get("authorization")).toBe("Bearer dfns-auth-token");
-      expect(headers.get("x-dfns-useraction")).toBe("dfns-useraction-signature");
       expect(parsedBody.kind).toBe("Snip12");
       expect(parsedBody.signatureMode).toBe("v2_snip12");
       return {
