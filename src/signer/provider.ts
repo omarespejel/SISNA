@@ -175,6 +175,24 @@ function isHexFelt(value: unknown): value is string {
   return typeof value === "string" && /^0x[0-9a-fA-F]+$/.test(value);
 }
 
+function compressedPubkeyCandidatesFromStarkKeyX(starkKeyX: string): [string, string] {
+  const normalizedX = num.toHex(BigInt(starkKeyX)).slice(2).padStart(64, "0");
+  return [`0x02${normalizedX}`, `0x03${normalizedX}`];
+}
+
+function verifyWithStarkKeyX(
+  signature: [string, string, string, string],
+  messageHash: string,
+): boolean {
+  const [starkKeyX, r, s] = signature;
+  const parsedSignature = new ec.starkCurve.Signature(BigInt(r), BigInt(s));
+  const [compressedEvenY, compressedOddY] = compressedPubkeyCandidatesFromStarkKeyX(starkKeyX);
+  return (
+    ec.starkCurve.verify(parsedSignature, messageHash, compressedEvenY)
+    || ec.starkCurve.verify(parsedSignature, messageHash, compressedOddY)
+  );
+}
+
 function validateDfnsSignResponse(
   payload: unknown,
   request: SignSessionTransactionRequest,
@@ -221,11 +239,7 @@ function validateDfnsSignResponse(
     throw new SignerUnavailableError("DFNS signer returned mismatched valid_until");
   }
 
-  const verified = ec.starkCurve.verify(
-    new ec.starkCurve.Signature(BigInt(normalizedSignature[1]), BigInt(normalizedSignature[2])),
-    expectedHashes.messageHash,
-    normalizedPubkey,
-  );
+  const verified = verifyWithStarkKeyX(normalizedSignature, expectedHashes.messageHash);
   if (!verified) {
     throw new SignerUnavailableError("DFNS signer returned unverifiable signature");
   }
