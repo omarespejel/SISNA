@@ -4,6 +4,7 @@ import type { SignSessionTransactionRequest } from "../types/api.js";
 import type { AuditLogger } from "../audit/logger.js";
 import {
   SessionTransactionSigner,
+  computeSessionSigningHashes,
   type SignatureResult,
 } from "./sessionSigner.js";
 import type { SigningPolicyConfig } from "./policy.js";
@@ -112,7 +113,7 @@ class DfnsSessionSignerProvider implements SessionSigner {
         throw new SignerUnavailableError(message);
       }
 
-      return validateDfnsSignResponse(payload, req.validUntil);
+      return validateDfnsSignResponse(payload, req);
     } catch (err) {
       if (err instanceof PolicyError || err instanceof SignerUnavailableError) {
         throw err;
@@ -174,7 +175,10 @@ function isHexFelt(value: unknown): value is string {
   return typeof value === "string" && /^0x[0-9a-fA-F]+$/.test(value);
 }
 
-function validateDfnsSignResponse(payload: unknown, validUntil: number): SignatureResult {
+function validateDfnsSignResponse(
+  payload: unknown,
+  request: SignSessionTransactionRequest,
+): SignatureResult {
   if (!payload || typeof payload !== "object") {
     throw new SignerUnavailableError("DFNS signer response payload is invalid");
   }
@@ -192,6 +196,16 @@ function validateDfnsSignResponse(payload: unknown, validUntil: number): Signatu
     throw new SignerUnavailableError("DFNS signer returned invalid signature shape");
   }
 
+  const expectedHashes = computeSessionSigningHashes(request);
+  const normalizedDomainHash = num.toHex(BigInt(parsed.domainHash));
+  const normalizedMessageHash = num.toHex(BigInt(parsed.messageHash));
+  if (normalizedDomainHash !== expectedHashes.domainHash) {
+    throw new SignerUnavailableError("DFNS signer returned mismatched domainHash");
+  }
+  if (normalizedMessageHash !== expectedHashes.messageHash) {
+    throw new SignerUnavailableError("DFNS signer returned mismatched messageHash");
+  }
+
   const normalizedSignature = parsed.signature.map((felt) => num.toHex(BigInt(felt))) as [
     string,
     string,
@@ -199,7 +213,7 @@ function validateDfnsSignResponse(payload: unknown, validUntil: number): Signatu
     string,
   ];
   const normalizedPubkey = num.toHex(BigInt(parsed.sessionPublicKey));
-  const normalizedValidUntil = num.toHex(validUntil);
+  const normalizedValidUntil = expectedHashes.validUntilHex;
   if (normalizedSignature[0] !== normalizedPubkey) {
     throw new SignerUnavailableError("DFNS signer returned mismatched session pubkey");
   }
@@ -209,7 +223,7 @@ function validateDfnsSignResponse(payload: unknown, validUntil: number): Signatu
 
   const verified = ec.starkCurve.verify(
     new ec.starkCurve.Signature(BigInt(normalizedSignature[1]), BigInt(normalizedSignature[2])),
-    parsed.messageHash,
+    expectedHashes.messageHash,
     normalizedPubkey,
   );
   if (!verified) {
@@ -221,8 +235,8 @@ function validateDfnsSignResponse(payload: unknown, validUntil: number): Signatu
     sessionPublicKey: normalizedPubkey,
     signatureMode: "v2_snip12",
     signatureKind: "Snip12",
-    domainHash: num.toHex(BigInt(parsed.domainHash)),
-    messageHash: num.toHex(BigInt(parsed.messageHash)),
+    domainHash: expectedHashes.domainHash,
+    messageHash: expectedHashes.messageHash,
     signature: normalizedSignature,
   };
 }

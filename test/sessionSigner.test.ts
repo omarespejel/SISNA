@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { constants, ec, num, outsideExecution, typedData } from "starknet";
-import { SessionTransactionSigner } from "../src/signer/sessionSigner.js";
+import { SessionTransactionSigner, computeSessionSigningHashes } from "../src/signer/sessionSigner.js";
 import { PolicyError } from "../src/signer/policy.js";
 
 const CURVE_ORDER = BigInt(
@@ -59,6 +59,36 @@ function computeDomainHash(req: any): string {
 }
 
 describe("SessionTransactionSigner canonical s", () => {
+  it("computes deterministic domain/message hashes for the signed request payload", () => {
+    const signer = new SessionTransactionSigner(
+      [{ keyId: "default", privateKey: "0x1", publicKey: undefined }],
+      "default",
+      new Map(),
+      new Map(),
+      { maxValidityWindowSec: 24 * 60 * 60, allowedChainIds: new Set() },
+    );
+    const req = {
+      accountAddress: "0x111",
+      chainId: "0x534e5f5345504f4c4941",
+      nonce: "0x12",
+      validUntil: Math.floor(Date.now() / 1000) + 3600,
+      calls: [
+        {
+          contractAddress: "0x222",
+          entrypoint: "transfer",
+          calldata: ["0x1", "0x0"],
+        },
+      ],
+    };
+
+    const expectedHashes = computeSessionSigningHashes(req as any);
+    const result = signer.sign(req as any, "client");
+
+    expect(result.domainHash).toBe(expectedHashes.domainHash);
+    expect(result.messageHash).toBe(expectedHashes.messageHash);
+    expect(result.signature[3]).toBe(expectedHashes.validUntilHex);
+  });
+
   it("always returns low-s signatures (s <= n/2)", () => {
     const signer = new SessionTransactionSigner(
       [{ keyId: "default", privateKey: "0x1", publicKey: undefined }],

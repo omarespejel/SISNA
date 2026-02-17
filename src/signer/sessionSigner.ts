@@ -16,6 +16,57 @@ export type SignatureResult = {
   signature: [string, string, string, string];
 };
 
+export type SessionSigningHashes = {
+  accountAddressHex: string;
+  validUntilHex: string;
+  domainHash: string;
+  messageHash: string;
+};
+
+export function computeSessionSigningHashes(
+  req: SignSessionTransactionRequest,
+  normalizedAccountAddress?: string,
+): SessionSigningHashes {
+  const accountAddressHex = num.toHex(BigInt(normalizedAccountAddress ?? normalizeFelt(req.accountAddress)));
+  const chainIdHex = num.toHex(BigInt(req.chainId));
+  const validUntilHex = num.toHex(req.validUntil);
+  const caller = req.caller
+    ? num.toHex(BigInt(req.caller))
+    : constants.OutsideExecutionCallerAny;
+  const executeAfter = req.executeAfter ? num.toHex(BigInt(req.executeAfter)) : 0;
+  const outsideTypedData = outsideExecution.getTypedData(
+    chainIdHex,
+    {
+      caller,
+      execute_after: executeAfter,
+      execute_before: req.validUntil,
+    },
+    req.nonce,
+    req.calls.map((call) => ({
+      contractAddress: call.contractAddress,
+      entrypoint: call.entrypoint,
+      calldata: call.calldata,
+    })),
+    OUTSIDE_EXECUTION_VERSION_V2,
+  );
+  const domainType = (outsideTypedData as { types: Record<string, unknown> }).types.StarknetDomain
+    ? "StarknetDomain"
+    : "StarkNetDomain";
+  const domainHash = typedData.getStructHash(
+    (outsideTypedData as { types: Record<string, unknown> }).types as never,
+    domainType,
+    (outsideTypedData as { domain: Record<string, unknown> }).domain as never,
+    (outsideTypedData as { domain?: { revision?: string } }).domain?.revision as never,
+  );
+  const messageHash = typedData.getMessageHash(outsideTypedData, accountAddressHex);
+  return {
+    accountAddressHex,
+    validUntilHex,
+    domainHash,
+    messageHash,
+  };
+}
+
 export class SessionTransactionSigner {
   readonly defaultKeyId: string;
   private readonly signingKeysById: Map<string, { privateKey: string; sessionPublicKey: string }>;
@@ -72,38 +123,7 @@ export class SessionTransactionSigner {
       throw new PolicyError(`Unknown keyId: ${requestedKeyId}`);
     }
 
-    const accountAddressHex = num.toHex(BigInt(normalizedAccount));
-    const chainIdHex = num.toHex(BigInt(req.chainId));
-    const validUntilHex = num.toHex(req.validUntil);
-    const caller = req.caller
-      ? num.toHex(BigInt(req.caller))
-      : constants.OutsideExecutionCallerAny;
-    const executeAfter = req.executeAfter ? num.toHex(BigInt(req.executeAfter)) : 0;
-    const outsideTypedData = outsideExecution.getTypedData(
-      chainIdHex,
-      {
-        caller,
-        execute_after: executeAfter,
-        execute_before: req.validUntil,
-      },
-      req.nonce,
-      req.calls.map((call) => ({
-        contractAddress: call.contractAddress,
-        entrypoint: call.entrypoint,
-        calldata: call.calldata,
-      })),
-      OUTSIDE_EXECUTION_VERSION_V2,
-    );
-    const domainType = (outsideTypedData as { types: Record<string, unknown> }).types.StarknetDomain
-      ? "StarknetDomain"
-      : "StarkNetDomain";
-    const domainHash = typedData.getStructHash(
-      (outsideTypedData as { types: Record<string, unknown> }).types as never,
-      domainType,
-      (outsideTypedData as { domain: Record<string, unknown> }).domain as never,
-      (outsideTypedData as { domain?: { revision?: string } }).domain?.revision as never,
-    );
-    const messageHash = typedData.getMessageHash(outsideTypedData, accountAddressHex);
+    const { validUntilHex, domainHash, messageHash } = computeSessionSigningHashes(req, normalizedAccount);
     const rawSig = ec.starkCurve.sign(messageHash, key.privateKey);
 
     // Enforce canonical s (s <= n/2) to prevent signature malleability.
