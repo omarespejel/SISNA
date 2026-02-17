@@ -30,6 +30,8 @@ type SignerFactoryArgs = {
 type DfnsSignerProviderConfig = {
   endpointUrl: string;
   timeoutMs: number;
+  authToken: string;
+  userActionSignature: string;
   defaultKeyId: string;
 };
 
@@ -78,6 +80,8 @@ class DfnsSessionSignerProvider implements SessionSigner {
         method: "POST",
         headers: {
           "content-type": "application/json",
+          authorization: `Bearer ${this.config.authToken}`,
+          "x-dfns-useraction": this.config.userActionSignature,
         },
         body: JSON.stringify({
           clientId,
@@ -127,6 +131,7 @@ class DfnsSessionSignerProvider implements SessionSigner {
 
 class FallbackSessionSignerProvider implements SessionSigner {
   readonly defaultKeyId: string;
+  private lastSignerProvider?: SignerProviderName;
 
   constructor(
     private readonly primary: SessionSigner,
@@ -137,12 +142,14 @@ class FallbackSessionSignerProvider implements SessionSigner {
   }
 
   get provider(): SignerProviderName {
-    return this.primary.provider;
+    return this.lastSignerProvider ?? this.primary.provider;
   }
 
   async sign(req: SignSessionTransactionRequest, clientId: string): Promise<SignatureResult> {
     try {
-      return await this.primary.sign(req, clientId);
+      const primaryResult = await this.primary.sign(req, clientId);
+      this.lastSignerProvider = primaryResult.signerProvider;
+      return primaryResult;
     } catch (err) {
       if (err instanceof PolicyError) {
         throw err;
@@ -156,7 +163,9 @@ class FallbackSessionSignerProvider implements SessionSigner {
           error: err instanceof Error ? err.message : String(err),
         },
       });
-      return this.fallback.sign(req, clientId);
+      const fallbackResult = await this.fallback.sign(req, clientId);
+      this.lastSignerProvider = fallbackResult.signerProvider;
+      return fallbackResult;
     }
   }
 }
@@ -219,7 +228,7 @@ function validateDfnsSignResponse(payload: unknown, validUntil: number): Signatu
 }
 
 export function createSessionSignerProvider(args: SignerFactoryArgs): SessionSigner {
-  const localProvider = new LocalSessionSignerProvider(
+  const buildLocalProvider = () => new LocalSessionSignerProvider(
     new SessionTransactionSigner(
       args.signingKeys,
       args.defaultKeyId,
@@ -230,17 +239,19 @@ export function createSessionSignerProvider(args: SignerFactoryArgs): SessionSig
   );
 
   if (args.config.KEYRING_SIGNER_PROVIDER === "local") {
-    return localProvider;
+    return buildLocalProvider();
   }
 
   const dfnsProvider = new DfnsSessionSignerProvider({
     endpointUrl: args.config.KEYRING_DFNS_SIGNER_URL!,
     timeoutMs: args.config.KEYRING_DFNS_TIMEOUT_MS,
+    authToken: args.config.KEYRING_DFNS_AUTH_TOKEN!,
+    userActionSignature: args.config.KEYRING_DFNS_USER_ACTION_SIGNATURE!,
     defaultKeyId: args.defaultKeyId,
   });
 
   if (args.config.KEYRING_SIGNER_FALLBACK_PROVIDER === "local") {
-    return new FallbackSessionSignerProvider(dfnsProvider, localProvider, args.logger);
+    return new FallbackSessionSignerProvider(dfnsProvider, buildLocalProvider(), args.logger);
   }
 
   return dfnsProvider;

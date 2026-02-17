@@ -27,6 +27,25 @@ export const SignSessionTransactionRequestSchema = z.object({
     })
     .optional(),
 }).superRefine((value, ctx) => {
+  if (value.executeAfter !== undefined) {
+    try {
+      const executeAfter = BigInt(value.executeAfter);
+      const validUntil = BigInt(value.validUntil);
+      if (executeAfter > validUntil) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "executeAfter must be <= validUntil",
+          path: ["executeAfter"],
+        });
+      }
+    } catch {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Invalid executeAfter value",
+        path: ["executeAfter"],
+      });
+    }
+  }
   const totalCalldata = value.calls.reduce((sum, call) => sum + call.calldata.length, 0);
   if (totalCalldata > MAX_TOTAL_CALLDATA_ELEMENTS) {
     ctx.addIssue({

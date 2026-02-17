@@ -26,6 +26,7 @@ describe("config loading", () => {
     expect(cfg.KEYRING_SECURITY_PROFILE).toBe("flex");
     expect(cfg.KEYRING_SIGNER_PROVIDER).toBe("local");
     expect(cfg.KEYRING_SIGNER_FALLBACK_PROVIDER).toBe("none");
+    expect(cfg.KEYRING_SESSION_SIGNATURE_MODE).toBe("v2_snip12");
     expect(cfg.NODE_ENV).toBe("development");
   });
 
@@ -74,6 +75,27 @@ describe("config loading", () => {
     ).toThrow(/KEYRING_DFNS_SIGNER_URL/i);
   });
 
+  it("requires DFNS auth settings when dfns signer provider is enabled", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_SIGNER_PROVIDER: "dfns",
+        KEYRING_DFNS_SIGNER_URL: "https://dfns-signer.internal/sign",
+      }),
+    ).toThrow(/KEYRING_DFNS_AUTH_TOKEN/i);
+
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_SIGNER_PROVIDER: "dfns",
+        KEYRING_DFNS_SIGNER_URL: "https://dfns-signer.internal/sign",
+        KEYRING_DFNS_AUTH_TOKEN: "token",
+      }),
+    ).toThrow(/KEYRING_DFNS_USER_ACTION_SIGNATURE/i);
+  });
+
   it("requires secure profile to use dfns-only without fallback", () => {
     expect(() =>
       loadConfig({
@@ -90,6 +112,8 @@ describe("config loading", () => {
         KEYRING_SECURITY_PROFILE: "secure",
         KEYRING_SIGNER_PROVIDER: "dfns",
         KEYRING_DFNS_SIGNER_URL: "https://dfns-signer.internal/sign",
+        KEYRING_DFNS_AUTH_TOKEN: "token",
+        KEYRING_DFNS_USER_ACTION_SIGNATURE: "user-action-signature",
         KEYRING_SIGNER_FALLBACK_PROVIDER: "local",
       }),
     ).toThrow(/requires KEYRING_SIGNER_FALLBACK_PROVIDER=none/i);
@@ -277,6 +301,8 @@ describe("config loading", () => {
       KEYRING_SECURITY_PROFILE: "secure",
       KEYRING_SIGNER_PROVIDER: "dfns",
       KEYRING_DFNS_SIGNER_URL: "https://dfns-signer.internal/sign",
+      KEYRING_DFNS_AUTH_TOKEN: "token",
+      KEYRING_DFNS_USER_ACTION_SIGNATURE: "user-action-signature",
     });
 
     expect(cfg.KEYRING_SECURITY_PROFILE).toBe("secure");

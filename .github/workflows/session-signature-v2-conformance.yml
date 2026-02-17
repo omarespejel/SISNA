@@ -32,7 +32,7 @@ jobs:
           node-version: "20"
 
       - name: Install AJV CLI
-        run: npm install --global ajv-cli@5
+        run: npm install --global ajv-cli@5.0.0
 
       - name: Validate vector file against schema
         run: |

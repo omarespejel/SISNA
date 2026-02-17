@@ -66,6 +66,8 @@ const EnvSchema = z.object({
   KEYRING_SIGNER_PROVIDER: z.enum(["local", "dfns"]).default("local"),
   KEYRING_SIGNER_FALLBACK_PROVIDER: z.enum(["none", "local"]).default("none"),
   KEYRING_DFNS_SIGNER_URL: z.string().url().optional(),
+  KEYRING_DFNS_AUTH_TOKEN: z.string().min(1).optional(),
+  KEYRING_DFNS_USER_ACTION_SIGNATURE: z.string().min(1).optional(),
   KEYRING_DFNS_TIMEOUT_MS: z.coerce.number().int().positive().default(7000),
   KEYRING_SESSION_SIGNATURE_MODE: z.enum(["v2_snip12"]).default("v2_snip12"),
   KEYRING_DEFAULT_KEY_ID: z.string().min(1).default("default"),
@@ -108,7 +110,10 @@ export type AppConfig = {
   KEYRING_SIGNER_PROVIDER: "local" | "dfns";
   KEYRING_SIGNER_FALLBACK_PROVIDER: "none" | "local";
   KEYRING_DFNS_SIGNER_URL?: string;
+  KEYRING_DFNS_AUTH_TOKEN?: string;
+  KEYRING_DFNS_USER_ACTION_SIGNATURE?: string;
   KEYRING_DFNS_TIMEOUT_MS: number;
+  KEYRING_SESSION_SIGNATURE_MODE: "v2_snip12";
   KEYRING_DEFAULT_KEY_ID: string;
   SIGNING_KEYS: SigningKeyConfig[];
 };
@@ -258,6 +263,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       "KEYRING_DFNS_SIGNER_URL is required when KEYRING_SIGNER_PROVIDER=dfns",
     );
   }
+  if (parsed.KEYRING_SIGNER_PROVIDER === "dfns" && !parsed.KEYRING_DFNS_AUTH_TOKEN) {
+    throw new Error(
+      "KEYRING_DFNS_AUTH_TOKEN is required when KEYRING_SIGNER_PROVIDER=dfns",
+    );
+  }
+  if (parsed.KEYRING_SIGNER_PROVIDER === "dfns" && !parsed.KEYRING_DFNS_USER_ACTION_SIGNATURE) {
+    throw new Error(
+      "KEYRING_DFNS_USER_ACTION_SIGNATURE is required when KEYRING_SIGNER_PROVIDER=dfns",
+    );
+  }
   if (parsed.KEYRING_SIGNER_FALLBACK_PROVIDER !== "none" && parsed.KEYRING_SIGNER_PROVIDER !== "dfns") {
     throw new Error(
       "KEYRING_SIGNER_FALLBACK_PROVIDER is only supported when KEYRING_SIGNER_PROVIDER=dfns",
@@ -325,7 +340,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     KEYRING_SIGNER_PROVIDER: parsed.KEYRING_SIGNER_PROVIDER,
     KEYRING_SIGNER_FALLBACK_PROVIDER: parsed.KEYRING_SIGNER_FALLBACK_PROVIDER,
     KEYRING_DFNS_SIGNER_URL: parsed.KEYRING_DFNS_SIGNER_URL,
+    KEYRING_DFNS_AUTH_TOKEN: parsed.KEYRING_DFNS_AUTH_TOKEN,
+    KEYRING_DFNS_USER_ACTION_SIGNATURE: parsed.KEYRING_DFNS_USER_ACTION_SIGNATURE,
     KEYRING_DFNS_TIMEOUT_MS: parsed.KEYRING_DFNS_TIMEOUT_MS,
+    KEYRING_SESSION_SIGNATURE_MODE: parsed.KEYRING_SESSION_SIGNATURE_MODE,
     KEYRING_DEFAULT_KEY_ID: parsed.KEYRING_DEFAULT_KEY_ID,
     SIGNING_KEYS: signingKeys,
   };

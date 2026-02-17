@@ -31,6 +31,7 @@ const baseConfig: AppConfig = {
   KEYRING_SIGNER_PROVIDER: "local",
   KEYRING_SIGNER_FALLBACK_PROVIDER: "none",
   KEYRING_DFNS_TIMEOUT_MS: 7000,
+  KEYRING_SESSION_SIGNATURE_MODE: "v2_snip12",
   KEYRING_DEFAULT_KEY_ID: "default",
   SIGNING_KEYS: [{ keyId: "default", privateKey: "0x1", publicKey: undefined }],
 };
