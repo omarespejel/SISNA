@@ -62,6 +62,7 @@ const EnvSchema = z.object({
     .string()
     .default("false")
     .transform(parseBoolean),
+  KEYRING_SESSION_SIGNATURE_MODE: z.enum(["v2_snip12"]).default("v2_snip12"),
   KEYRING_DEFAULT_KEY_ID: z.string().min(1).default("default"),
   KEYRING_SIGNING_KEYS_JSON: z.string().default(""),
   SESSION_PRIVATE_KEY: z.string().startsWith("0x").optional(),

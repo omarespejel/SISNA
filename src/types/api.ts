@@ -15,6 +15,8 @@ export const SignSessionTransactionRequestSchema = z.object({
   keyId: z.string().min(1).max(64).optional(),
   chainId: DecimalOrHexFelt,
   nonce: DecimalOrHexFelt,
+  caller: DecimalOrHexFelt.optional(),
+  executeAfter: DecimalOrHexFelt.optional(),
   validUntil: z.number().int().positive(),
   calls: z.array(CallSchema).min(1).max(64),
   context: z

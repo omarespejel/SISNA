@@ -97,11 +97,14 @@ export function signSessionRouter(args: {
         requestId: req.requestId,
         details: {
           signatureMode: result.signatureMode,
+          signatureKind: result.signatureKind,
           domainHash: result.domainHash,
           messageHash: result.messageHash,
           accountAddress: parsed.accountAddress,
           keyId: parsed.keyId,
           calls: parsed.calls.length,
+          caller: parsed.caller,
+          executeAfter: parsed.executeAfter,
           validUntil: parsed.validUntil,
           requester: parsed.context?.requester,
           tool: parsed.context?.tool,
@@ -112,6 +115,7 @@ export function signSessionRouter(args: {
       const responsePayload = {
         requestId: req.requestId,
         signatureMode: result.signatureMode,
+        signatureKind: result.signatureKind,
         domainHash: result.domainHash,
         messageHash: result.messageHash,
         sessionPublicKey: result.sessionPublicKey,

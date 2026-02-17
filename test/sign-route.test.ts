@@ -146,6 +146,7 @@ describe("sign route", () => {
     expect(Array.isArray(res.body.signature)).toBe(true);
     expect(res.body.signature.length).toBe(4);
     expect(res.body.signatureMode).toBe("v2_snip12");
+    expect(res.body.signatureKind).toBe("Snip12");
     expect(typeof res.body.domainHash).toBe("string");
     expect(/^0x[0-9a-f]+$/i.test(res.body.domainHash)).toBe(true);
     expect(typeof res.body.messageHash).toBe("string");

@@ -51,6 +51,16 @@ describe("config loading", () => {
     expect(cfg.KEYRING_DEFAULT_AUTH_CLIENT_ID).toBe("mcp-ops");
   });
 
+  it("fails closed on unsupported session signature mode", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_SESSION_SIGNATURE_MODE: "v1_legacy",
+      }),
+    ).toThrow(/KEYRING_SESSION_SIGNATURE_MODE/i);
+  });
+
   it("rejects duplicate key ids", () => {
     expect(() =>
       loadConfig({
