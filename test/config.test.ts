@@ -96,6 +96,37 @@ describe("config loading", () => {
     ).toThrow(/KEYRING_DFNS_USER_ACTION_SIGNATURE/i);
   });
 
+  it("requires DFNS pinned pubkeys mapping when dfns signer provider is enabled", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_SIGNER_PROVIDER: "dfns",
+        KEYRING_DFNS_SIGNER_URL: "https://dfns-signer.internal/sign",
+        KEYRING_DFNS_AUTH_TOKEN: "token",
+        KEYRING_DFNS_USER_ACTION_SIGNATURE: "user-action-signature",
+      }),
+    ).toThrow(/KEYRING_DFNS_PINNED_PUBKEYS_JSON/i);
+  });
+
+  it("accepts dfns pinning and preflight config", () => {
+    const cfg = loadConfig({
+      ...baseEnv(),
+      SESSION_PRIVATE_KEY: "0x1",
+      KEYRING_SIGNER_PROVIDER: "dfns",
+      KEYRING_DFNS_SIGNER_URL: "https://dfns-signer.internal/sign",
+      KEYRING_DFNS_AUTH_TOKEN: "token",
+      KEYRING_DFNS_USER_ACTION_SIGNATURE: "user-action-signature",
+      KEYRING_DFNS_PINNED_PUBKEYS_JSON: '{"default":"0x01"}',
+      KEYRING_DFNS_PREFLIGHT_ON_STARTUP: "true",
+      KEYRING_DFNS_PREFLIGHT_TIMEOUT_MS: "5000",
+    });
+
+    expect(cfg.KEYRING_DFNS_PINNED_PUBKEYS_BY_KEY_ID.default).toBe("0x1");
+    expect(cfg.KEYRING_DFNS_PREFLIGHT_ON_STARTUP).toBe(true);
+    expect(cfg.KEYRING_DFNS_PREFLIGHT_TIMEOUT_MS).toBe(5000);
+  });
+
   it("requires secure profile to use dfns-only without fallback", () => {
     expect(() =>
       loadConfig({
@@ -114,6 +145,7 @@ describe("config loading", () => {
         KEYRING_DFNS_SIGNER_URL: "https://dfns-signer.internal/sign",
         KEYRING_DFNS_AUTH_TOKEN: "token",
         KEYRING_DFNS_USER_ACTION_SIGNATURE: "user-action-signature",
+        KEYRING_DFNS_PINNED_PUBKEYS_JSON: '{"default":"0x1"}',
         KEYRING_SIGNER_FALLBACK_PROVIDER: "local",
       }),
     ).toThrow(/requires KEYRING_SIGNER_FALLBACK_PROVIDER=none/i);
@@ -303,6 +335,7 @@ describe("config loading", () => {
       KEYRING_DFNS_SIGNER_URL: "https://dfns-signer.internal/sign",
       KEYRING_DFNS_AUTH_TOKEN: "token",
       KEYRING_DFNS_USER_ACTION_SIGNATURE: "user-action-signature",
+      KEYRING_DFNS_PINNED_PUBKEYS_JSON: '{"default":"0x1"}',
     });
 
     expect(cfg.KEYRING_SECURITY_PROFILE).toBe("secure");
