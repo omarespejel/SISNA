@@ -34,6 +34,7 @@ type DfnsSignerProviderConfig = {
   authToken: string;
   userActionSignature: string;
   defaultKeyId: string;
+  pinnedPubkeysByKeyId: ReadonlyMap<string, string>;
 };
 
 type DfnsSignResponse = {
@@ -43,6 +44,21 @@ type DfnsSignResponse = {
   messageHash: string;
   sessionPublicKey: string;
   signature: [string, string, string, string];
+};
+
+export type DfnsPreflightResult = {
+  ok: boolean;
+  reachable: boolean;
+  endpointUrl: string;
+  statusCode?: number;
+  error?: string;
+};
+
+type DfnsPreflightConfig = {
+  endpointUrl: string;
+  timeoutMs: number;
+  authToken: string;
+  userActionSignature: string;
 };
 
 export class SignerUnavailableError extends Error {
@@ -113,7 +129,12 @@ class DfnsSessionSignerProvider implements SessionSigner {
         throw new SignerUnavailableError(message);
       }
 
-      return validateDfnsSignResponse(payload, req);
+      return validateDfnsSignResponse(
+        payload,
+        req,
+        this.config.defaultKeyId,
+        this.config.pinnedPubkeysByKeyId,
+      );
     } catch (err) {
       if (err instanceof PolicyError || err instanceof SignerUnavailableError) {
         throw err;
@@ -196,6 +217,8 @@ function verifyWithStarkKeyX(
 function validateDfnsSignResponse(
   payload: unknown,
   request: SignSessionTransactionRequest,
+  defaultKeyId: string,
+  pinnedPubkeysByKeyId: ReadonlyMap<string, string>,
 ): SignatureResult {
   if (!payload || typeof payload !== "object") {
     throw new SignerUnavailableError("DFNS signer response payload is invalid");
@@ -231,6 +254,17 @@ function validateDfnsSignResponse(
     string,
   ];
   const normalizedPubkey = num.toHex(BigInt(parsed.sessionPublicKey));
+  const resolvedKeyId = request.keyId ?? defaultKeyId;
+  const expectedPinnedPubkey = pinnedPubkeysByKeyId.get(resolvedKeyId);
+  if (!expectedPinnedPubkey) {
+    throw new SignerUnavailableError(`DFNS signer keyId ${resolvedKeyId} is not pinned`);
+  }
+  const normalizedPinnedPubkey = num.toHex(BigInt(expectedPinnedPubkey));
+  if (normalizedPubkey !== normalizedPinnedPubkey) {
+    throw new SignerUnavailableError(
+      `DFNS signer returned unexpected sessionPublicKey for keyId ${resolvedKeyId}`,
+    );
+  }
   const normalizedValidUntil = expectedHashes.validUntilHex;
   if (normalizedSignature[0] !== normalizedPubkey) {
     throw new SignerUnavailableError("DFNS signer returned mismatched session pubkey");
@@ -255,6 +289,47 @@ function validateDfnsSignResponse(
   };
 }
 
+export async function runDfnsPreflightCheck(
+  config: DfnsPreflightConfig,
+): Promise<DfnsPreflightResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+  try {
+    const response = await fetch(config.endpointUrl, {
+      method: "OPTIONS",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${config.authToken}`,
+        "x-dfns-useraction": config.userActionSignature,
+      },
+      signal: controller.signal,
+    });
+    return {
+      ok: true,
+      reachable: true,
+      endpointUrl: config.endpointUrl,
+      statusCode: response.status,
+    };
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      return {
+        ok: false,
+        reachable: false,
+        endpointUrl: config.endpointUrl,
+        error: `DFNS signer preflight timed out after ${config.timeoutMs}ms`,
+      };
+    }
+    return {
+      ok: false,
+      reachable: false,
+      endpointUrl: config.endpointUrl,
+      error: err instanceof Error ? err.message : "DFNS signer preflight request failed",
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export function createSessionSignerProvider(args: SignerFactoryArgs): SessionSigner {
   const buildLocalProvider = () => new LocalSessionSignerProvider(
     new SessionTransactionSigner(
@@ -276,6 +351,9 @@ export function createSessionSignerProvider(args: SignerFactoryArgs): SessionSig
     authToken: args.config.KEYRING_DFNS_AUTH_TOKEN!,
     userActionSignature: args.config.KEYRING_DFNS_USER_ACTION_SIGNATURE!,
     defaultKeyId: args.defaultKeyId,
+    pinnedPubkeysByKeyId: new Map(
+      Object.entries(args.config.KEYRING_DFNS_PINNED_PUBKEYS_BY_KEY_ID),
+    ),
   });
 
   if (args.config.KEYRING_SIGNER_FALLBACK_PROVIDER === "local") {

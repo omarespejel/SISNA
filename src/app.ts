@@ -196,7 +196,7 @@ export function createApp(config: AppConfig) {
     res.status(403).json({ error: "browser origins are not allowed" });
   });
 
-  app.use(healthRouter());
+  app.use(healthRouter(config));
 
   app.use(
     createHmacMiddleware({
