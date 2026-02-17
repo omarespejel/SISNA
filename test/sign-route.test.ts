@@ -113,6 +113,12 @@ function buildDfnsSignatureResponse(
 ) {
   const hashes = computeSessionSigningHashes(bodyRequest);
   const rawSig = ec.starkCurve.sign(hashes.messageHash, privateKey);
+  const curveOrder = BigInt(
+    "3618502788666131213697322783095070105526743751716087489154079457884512865583",
+  );
+  const halfOrder = curveOrder >> 1n;
+  const s = BigInt(rawSig.s);
+  const canonicalS = s > halfOrder ? curveOrder - s : s;
   const sessionPublicKey = ec.starkCurve.getStarkKey(privateKey);
   return {
     signatureMode: "v2_snip12" as const,
@@ -124,7 +130,7 @@ function buildDfnsSignatureResponse(
     signature: [
       sessionPublicKey,
       num.toHex(rawSig.r),
-      num.toHex(rawSig.s),
+      num.toHex(canonicalS),
       hashes.validUntilHex,
     ],
   };
