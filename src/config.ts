@@ -62,6 +62,11 @@ const EnvSchema = z.object({
     .string()
     .default("false")
     .transform(parseBoolean),
+  KEYRING_SECURITY_PROFILE: z.enum(["secure", "flex"]).default("flex"),
+  KEYRING_SIGNER_PROVIDER: z.enum(["local", "dfns"]).default("local"),
+  KEYRING_SIGNER_FALLBACK_PROVIDER: z.enum(["none", "local"]).default("none"),
+  KEYRING_DFNS_SIGNER_URL: z.string().url().optional(),
+  KEYRING_DFNS_TIMEOUT_MS: z.coerce.number().int().positive().default(7000),
   KEYRING_SESSION_SIGNATURE_MODE: z.enum(["v2_snip12"]).default("v2_snip12"),
   KEYRING_DEFAULT_KEY_ID: z.string().min(1).default("default"),
   KEYRING_SIGNING_KEYS_JSON: z.string().default(""),
@@ -99,6 +104,11 @@ export type AppConfig = {
   KEYRING_LEAK_SCANNER_ENABLED: boolean;
   KEYRING_LEAK_SCANNER_ACTION: "block" | "warn";
   KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION: boolean;
+  KEYRING_SECURITY_PROFILE: "secure" | "flex";
+  KEYRING_SIGNER_PROVIDER: "local" | "dfns";
+  KEYRING_SIGNER_FALLBACK_PROVIDER: "none" | "local";
+  KEYRING_DFNS_SIGNER_URL?: string;
+  KEYRING_DFNS_TIMEOUT_MS: number;
   KEYRING_DEFAULT_KEY_ID: string;
   SIGNING_KEYS: SigningKeyConfig[];
 };
@@ -243,6 +253,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     }
   }
 
+  if (parsed.KEYRING_SIGNER_PROVIDER === "dfns" && !parsed.KEYRING_DFNS_SIGNER_URL) {
+    throw new Error(
+      "KEYRING_DFNS_SIGNER_URL is required when KEYRING_SIGNER_PROVIDER=dfns",
+    );
+  }
+  if (parsed.KEYRING_SIGNER_FALLBACK_PROVIDER !== "none" && parsed.KEYRING_SIGNER_PROVIDER !== "dfns") {
+    throw new Error(
+      "KEYRING_SIGNER_FALLBACK_PROVIDER is only supported when KEYRING_SIGNER_PROVIDER=dfns",
+    );
+  }
+  if (parsed.KEYRING_SECURITY_PROFILE === "secure") {
+    if (parsed.KEYRING_SIGNER_PROVIDER !== "dfns") {
+      throw new Error("KEYRING_SECURITY_PROFILE=secure requires KEYRING_SIGNER_PROVIDER=dfns");
+    }
+    if (parsed.KEYRING_SIGNER_FALLBACK_PROVIDER !== "none") {
+      throw new Error("KEYRING_SECURITY_PROFILE=secure requires KEYRING_SIGNER_FALLBACK_PROVIDER=none");
+    }
+  }
+
   if (isProduction) {
     if (parsed.KEYRING_TRANSPORT !== "https") {
       throw new Error("NODE_ENV=production requires KEYRING_TRANSPORT=https");
@@ -255,7 +284,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     if (redisRequired && parsed.KEYRING_REDIS_URL && !parsed.KEYRING_REDIS_URL.startsWith("rediss://")) {
       throw new Error("NODE_ENV=production requires KEYRING_REDIS_URL to use rediss://");
     }
-    if (!parsed.KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION) {
+    const localSigningEnabled = parsed.KEYRING_SIGNER_PROVIDER === "local"
+      || parsed.KEYRING_SIGNER_FALLBACK_PROVIDER === "local";
+    if (localSigningEnabled && !parsed.KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION) {
       throw new Error(
         "NODE_ENV=production requires explicit KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION=true until external KMS/HSM signer mode is enabled",
       );
@@ -290,6 +321,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     KEYRING_LEAK_SCANNER_ACTION: parsed.KEYRING_LEAK_SCANNER_ACTION,
     KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION:
       parsed.KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION,
+    KEYRING_SECURITY_PROFILE: parsed.KEYRING_SECURITY_PROFILE,
+    KEYRING_SIGNER_PROVIDER: parsed.KEYRING_SIGNER_PROVIDER,
+    KEYRING_SIGNER_FALLBACK_PROVIDER: parsed.KEYRING_SIGNER_FALLBACK_PROVIDER,
+    KEYRING_DFNS_SIGNER_URL: parsed.KEYRING_DFNS_SIGNER_URL,
+    KEYRING_DFNS_TIMEOUT_MS: parsed.KEYRING_DFNS_TIMEOUT_MS,
     KEYRING_DEFAULT_KEY_ID: parsed.KEYRING_DEFAULT_KEY_ID,
     SIGNING_KEYS: signingKeys,
   };

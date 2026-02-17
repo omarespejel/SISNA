@@ -7,6 +7,7 @@ import { normalizeFelt } from "../utils/felt.js";
 const OUTSIDE_EXECUTION_VERSION_V2 = "2";
 
 export type SignatureResult = {
+  signerProvider: "local" | "dfns";
   sessionPublicKey: string;
   signatureMode: "v2_snip12";
   signatureKind: "Snip12";
@@ -115,6 +116,7 @@ export class SessionTransactionSigner {
     const canonicalS = s > halfOrder ? CURVE_ORDER - s : s;
 
     return {
+      signerProvider: "local",
       sessionPublicKey: key.sessionPublicKey,
       signatureMode: "v2_snip12",
       signatureKind: "Snip12",

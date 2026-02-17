@@ -38,6 +38,11 @@ const baseConfig: AppConfig = {
   KEYRING_REDIS_RATE_LIMIT_PREFIX: "starknet-keyring-proxy:ratelimit:",
   KEYRING_LEAK_SCANNER_ENABLED: false,
   KEYRING_LEAK_SCANNER_ACTION: "block",
+  KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION: false,
+  KEYRING_SECURITY_PROFILE: "flex",
+  KEYRING_SIGNER_PROVIDER: "local",
+  KEYRING_SIGNER_FALLBACK_PROVIDER: "none",
+  KEYRING_DFNS_TIMEOUT_MS: 7000,
   KEYRING_DEFAULT_KEY_ID: "default",
   SIGNING_KEYS: [
     {
@@ -147,6 +152,7 @@ describe("sign route", () => {
     expect(res.body.signature.length).toBe(4);
     expect(res.body.signatureMode).toBe("v2_snip12");
     expect(res.body.signatureKind).toBe("Snip12");
+    expect(res.body.signerProvider).toBe("local");
     expect(typeof res.body.domainHash).toBe("string");
     expect(/^0x[0-9a-f]+$/i.test(res.body.domainHash)).toBe(true);
     expect(typeof res.body.messageHash).toBe("string");

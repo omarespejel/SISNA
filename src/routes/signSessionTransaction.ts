@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { ZodError } from "zod";
 import { SignSessionTransactionRequestSchema } from "../types/api.js";
-import type { SessionTransactionSigner } from "../signer/sessionSigner.js";
 import { PolicyError } from "../signer/policy.js";
+import { SignerUnavailableError, type SessionSigner } from "../signer/provider.js";
 import type { RequestWithContext } from "../types/http.js";
 import type { AuditLogger } from "../audit/logger.js";
 import type { LeakScanner } from "../security/leakScanner.js";
@@ -10,7 +10,7 @@ import type { RateLimitDecision, RateLimiter } from "../security/rateLimiter.js"
 import { RateLimiterUnavailableError } from "../security/rateLimiter.js";
 
 export function signSessionRouter(args: {
-  signer: SessionTransactionSigner;
+  signer: SessionSigner;
   logger: AuditLogger;
   leakScanner: LeakScanner;
   rateLimiter: RateLimiter | null;
@@ -89,7 +89,7 @@ export function signSessionRouter(args: {
         res.setHeader("x-ratelimit-reset-ms", String(decision.resetAtMs));
       }
 
-      const result = args.signer.sign(parsed, clientId);
+      const result = await args.signer.sign(parsed, clientId);
 
       args.logger.log({
         level: "info",
@@ -100,6 +100,7 @@ export function signSessionRouter(args: {
           signatureKind: result.signatureKind,
           domainHash: result.domainHash,
           messageHash: result.messageHash,
+          signerProvider: result.signerProvider,
           accountAddress: parsed.accountAddress,
           keyId: parsed.keyId,
           calls: parsed.calls.length,
@@ -118,6 +119,7 @@ export function signSessionRouter(args: {
         signatureKind: result.signatureKind,
         domainHash: result.domainHash,
         messageHash: result.messageHash,
+        signerProvider: result.signerProvider,
         sessionPublicKey: result.sessionPublicKey,
         signature: result.signature,
       };
@@ -146,6 +148,18 @@ export function signSessionRouter(args: {
           details: { reason: err.message },
         });
         res.status(422).json({ error: err.message });
+        return;
+      }
+      if (err instanceof SignerUnavailableError) {
+        args.logger.log({
+          level: "error",
+          event: "sign.session_transaction.signer_unavailable",
+          requestId: req.requestId,
+          details: {
+            error: err.message,
+          },
+        });
+        res.status(503).json({ error: "signer unavailable" });
         return;
       }
 

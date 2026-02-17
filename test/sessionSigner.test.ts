@@ -107,6 +107,7 @@ describe("SessionTransactionSigner canonical s", () => {
     const outS = BigInt(res.signature[2]);
     expect(outS).toBeLessThanOrEqual(halfOrder);
     expect(num.toHex(outS)).toBe(num.toHex(expectedCanonicalS));
+    expect(res.signerProvider).toBe("local");
     expect(res.signatureMode).toBe("v2_snip12");
     expect(res.signatureKind).toBe("Snip12");
     expect(res.domainHash).toBe(expectedDomainHash);
