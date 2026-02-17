@@ -69,6 +69,9 @@ const EnvSchema = z.object({
   KEYRING_DFNS_AUTH_TOKEN: z.string().min(1).optional(),
   KEYRING_DFNS_USER_ACTION_SIGNATURE: z.string().min(1).optional(),
   KEYRING_DFNS_TIMEOUT_MS: z.coerce.number().int().positive().default(7000),
+  KEYRING_DFNS_PINNED_PUBKEYS_JSON: z.string().default(""),
+  KEYRING_DFNS_PREFLIGHT_ON_STARTUP: z.string().default("false").transform(parseBoolean),
+  KEYRING_DFNS_PREFLIGHT_TIMEOUT_MS: z.coerce.number().int().positive().default(3000),
   KEYRING_SESSION_SIGNATURE_MODE: z.enum(["v2_snip12"]).default("v2_snip12"),
   KEYRING_DEFAULT_KEY_ID: z.string().min(1).default("default"),
   KEYRING_SIGNING_KEYS_JSON: z.string().default(""),
@@ -113,6 +116,9 @@ export type AppConfig = {
   KEYRING_DFNS_AUTH_TOKEN?: string;
   KEYRING_DFNS_USER_ACTION_SIGNATURE?: string;
   KEYRING_DFNS_TIMEOUT_MS: number;
+  KEYRING_DFNS_PINNED_PUBKEYS_BY_KEY_ID: Record<string, string>;
+  KEYRING_DFNS_PREFLIGHT_ON_STARTUP: boolean;
+  KEYRING_DFNS_PREFLIGHT_TIMEOUT_MS: number;
   KEYRING_SESSION_SIGNATURE_MODE: "v2_snip12";
   KEYRING_DEFAULT_KEY_ID: string;
   SIGNING_KEYS: SigningKeyConfig[];
@@ -151,6 +157,53 @@ function parseAuthClientsJson(raw: string): AuthClientConfig[] | undefined {
   }
 
   return z.array(AuthClientSchema).min(1).parse(parsed);
+}
+
+function normalizeHexFelt(value: string): string {
+  return numToHex(BigInt(value));
+}
+
+function numToHex(value: bigint): string {
+  return `0x${value.toString(16)}`;
+}
+
+function parseDfnsPinnedPubkeysJson(
+  raw: string,
+  knownKeyIds: Set<string>,
+): Record<string, string> {
+  if (!raw.trim()) {
+    return {};
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(
+      `KEYRING_DFNS_PINNED_PUBKEYS_JSON is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  const schemaParsed = z.record(z.string(), z.string().startsWith("0x")).parse(parsed);
+  const normalized: Record<string, string> = {};
+
+  for (const [keyId, pubkey] of Object.entries(schemaParsed)) {
+    if (!keyId.trim()) {
+      throw new Error("KEYRING_DFNS_PINNED_PUBKEYS_JSON contains empty keyId");
+    }
+    if (!knownKeyIds.has(keyId)) {
+      throw new Error(`KEYRING_DFNS_PINNED_PUBKEYS_JSON references unknown keyId: ${keyId}`);
+    }
+    try {
+      normalized[keyId] = normalizeHexFelt(pubkey);
+    } catch {
+      throw new Error(
+        `KEYRING_DFNS_PINNED_PUBKEYS_JSON contains invalid pubkey for keyId ${keyId}`,
+      );
+    }
+  }
+
+  return normalized;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -229,6 +282,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       `KEYRING_DEFAULT_AUTH_CLIENT_ID (${parsed.KEYRING_DEFAULT_AUTH_CLIENT_ID}) not present in auth clients`,
     );
   }
+  const dfnsPinnedPubkeysByKeyId = parseDfnsPinnedPubkeysJson(
+    parsed.KEYRING_DFNS_PINNED_PUBKEYS_JSON,
+    keyIds,
+  );
 
   if (parsed.KEYRING_REPLAY_STORE === "redis" && !parsed.KEYRING_REDIS_URL) {
     throw new Error("KEYRING_REDIS_URL is required when KEYRING_REPLAY_STORE=redis");
@@ -271,6 +328,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (parsed.KEYRING_SIGNER_PROVIDER === "dfns" && !parsed.KEYRING_DFNS_USER_ACTION_SIGNATURE) {
     throw new Error(
       "KEYRING_DFNS_USER_ACTION_SIGNATURE is required when KEYRING_SIGNER_PROVIDER=dfns",
+    );
+  }
+  if (parsed.KEYRING_SIGNER_PROVIDER === "dfns" && Object.keys(dfnsPinnedPubkeysByKeyId).length === 0) {
+    throw new Error(
+      "KEYRING_DFNS_PINNED_PUBKEYS_JSON is required when KEYRING_SIGNER_PROVIDER=dfns",
+    );
+  }
+  if (
+    parsed.KEYRING_SIGNER_PROVIDER === "dfns"
+    && !dfnsPinnedPubkeysByKeyId[parsed.KEYRING_DEFAULT_KEY_ID]
+  ) {
+    throw new Error(
+      `KEYRING_DFNS_PINNED_PUBKEYS_JSON must include KEYRING_DEFAULT_KEY_ID (${parsed.KEYRING_DEFAULT_KEY_ID})`,
     );
   }
   if (parsed.KEYRING_SIGNER_FALLBACK_PROVIDER !== "none" && parsed.KEYRING_SIGNER_PROVIDER !== "dfns") {
@@ -343,6 +413,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     KEYRING_DFNS_AUTH_TOKEN: parsed.KEYRING_DFNS_AUTH_TOKEN,
     KEYRING_DFNS_USER_ACTION_SIGNATURE: parsed.KEYRING_DFNS_USER_ACTION_SIGNATURE,
     KEYRING_DFNS_TIMEOUT_MS: parsed.KEYRING_DFNS_TIMEOUT_MS,
+    KEYRING_DFNS_PINNED_PUBKEYS_BY_KEY_ID: dfnsPinnedPubkeysByKeyId,
+    KEYRING_DFNS_PREFLIGHT_ON_STARTUP: parsed.KEYRING_DFNS_PREFLIGHT_ON_STARTUP,
+    KEYRING_DFNS_PREFLIGHT_TIMEOUT_MS: parsed.KEYRING_DFNS_PREFLIGHT_TIMEOUT_MS,
     KEYRING_SESSION_SIGNATURE_MODE: parsed.KEYRING_SESSION_SIGNATURE_MODE,
     KEYRING_DEFAULT_KEY_ID: parsed.KEYRING_DEFAULT_KEY_ID,
     SIGNING_KEYS: signingKeys,

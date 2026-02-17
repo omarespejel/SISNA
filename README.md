@@ -37,6 +37,8 @@ Works with Claude Code, Codex, Cursor, or any agent that can run `gh` workflows.
 ## Features
 
 - Session transaction signing endpoint (`POST /v1/sign/session-transaction`)
+- DFNS optional signer provider with fail-closed key pinning per `keyId`
+- DFNS preflight endpoint (`GET /health/dfns-preflight`) and optional startup preflight
 - HMAC request authentication (`X-Keyring-*` headers)
 - Per-client authorization (`clientId -> allowed keyIds`)
 - Nonce replay protection with TTL (memory or Redis backend)
@@ -180,9 +182,33 @@ KEYRING_AUTH_CLIENTS_JSON=[{"clientId":"mcp-default","hmacSecret":"replace-me-00
 ## API
 
 - `GET /health` (no auth)
+- `GET /health/dfns-preflight` (no auth; available when `KEYRING_SIGNER_PROVIDER=dfns`)
 - `POST /v1/sign/session-transaction` (HMAC auth)
   - optional header: `X-Keyring-Client-Id`
   - optional request field: `keyId`
+
+## DFNS Signer Mode (Optional, Production-Grade)
+
+Use DFNS for managed custody while keeping session signing behavior SNIP-12 compatible:
+
+```bash
+KEYRING_SECURITY_PROFILE=secure
+KEYRING_SIGNER_PROVIDER=dfns
+KEYRING_SIGNER_FALLBACK_PROVIDER=none
+KEYRING_DFNS_SIGNER_URL=https://dfns-signer.internal/sign
+KEYRING_DFNS_AUTH_TOKEN=replace-me
+KEYRING_DFNS_USER_ACTION_SIGNATURE=replace-me
+KEYRING_DFNS_TIMEOUT_MS=7000
+KEYRING_DFNS_PINNED_PUBKEYS_JSON={"default":"0x...","ops":"0x..."}
+KEYRING_DFNS_PREFLIGHT_ON_STARTUP=true
+KEYRING_DFNS_PREFLIGHT_TIMEOUT_MS=3000
+```
+
+Fail-closed behavior:
+- DFNS response hashes must match the request payload.
+- `signature[3]` (`valid_until`) must match the requested window.
+- Returned `sessionPublicKey` must match the pinned key for the requested `keyId`.
+- If startup preflight is enabled, SISNA fails startup when DFNS is unreachable.
 
 See `docs/api-spec.yaml` for schema.
 
