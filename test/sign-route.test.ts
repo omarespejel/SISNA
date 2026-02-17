@@ -1,10 +1,10 @@
 import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ec, hash, num } from "starknet";
+import { ec, hash } from "starknet";
 import { createApp } from "../src/app.js";
 import { buildSigningPayload, computeHmacHex } from "../src/auth/hmac.js";
 import type { AppConfig } from "../src/config.js";
-import { computeSessionSigningHashes } from "../src/signer/sessionSigner.js";
+import { SessionTransactionSigner } from "../src/signer/sessionSigner.js";
 
 const baseConfig: AppConfig = {
   NODE_ENV: "test",
@@ -111,28 +111,22 @@ function buildDfnsSignatureResponse(
     messageHash: string;
   }>,
 ) {
-  const hashes = computeSessionSigningHashes(bodyRequest);
-  const rawSig = ec.starkCurve.sign(hashes.messageHash, privateKey);
-  const curveOrder = BigInt(
-    "3618502788666131213697322783095070105526743751716087489154079457884512865583",
+  const signer = new SessionTransactionSigner(
+    [{ keyId: "default", privateKey, publicKey: undefined }],
+    "default",
+    new Map(),
+    new Map(),
+    { maxValidityWindowSec: 24 * 60 * 60, allowedChainIds: new Set() },
   );
-  const halfOrder = curveOrder >> 1n;
-  const s = BigInt(rawSig.s);
-  const canonicalS = s > halfOrder ? curveOrder - s : s;
-  const sessionPublicKey = ec.starkCurve.getStarkKey(privateKey);
+  const signed = signer.sign(bodyRequest as any, "test-client");
   return {
     signatureMode: "v2_snip12" as const,
     signatureKind: "Snip12" as const,
     signerProvider: "dfns" as const,
-    sessionPublicKey,
-    domainHash: overrides?.domainHash ?? hashes.domainHash,
-    messageHash: overrides?.messageHash ?? hashes.messageHash,
-    signature: [
-      sessionPublicKey,
-      num.toHex(rawSig.r),
-      num.toHex(canonicalS),
-      hashes.validUntilHex,
-    ],
+    sessionPublicKey: signed.sessionPublicKey,
+    domainHash: overrides?.domainHash ?? signed.domainHash,
+    messageHash: overrides?.messageHash ?? signed.messageHash,
+    signature: signed.signature,
   };
 }
 
