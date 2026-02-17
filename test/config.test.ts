@@ -23,6 +23,10 @@ describe("config loading", () => {
     expect(cfg.KEYRING_REPLAY_STORE).toBe("memory");
     expect(cfg.KEYRING_RATE_LIMIT_ENABLED).toBe(false);
     expect(cfg.KEYRING_LEAK_SCANNER_ENABLED).toBe(false);
+    expect(cfg.KEYRING_SECURITY_PROFILE).toBe("flex");
+    expect(cfg.KEYRING_SIGNER_PROVIDER).toBe("local");
+    expect(cfg.KEYRING_SIGNER_FALLBACK_PROVIDER).toBe("none");
+    expect(cfg.KEYRING_SESSION_SIGNATURE_MODE).toBe("v2_snip12");
     expect(cfg.NODE_ENV).toBe("development");
   });
 
@@ -49,6 +53,70 @@ describe("config loading", () => {
 
     expect(cfg.AUTH_CLIENTS.length).toBe(2);
     expect(cfg.KEYRING_DEFAULT_AUTH_CLIENT_ID).toBe("mcp-ops");
+  });
+
+  it("fails closed on unsupported session signature mode", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_SESSION_SIGNATURE_MODE: "v1_legacy",
+      }),
+    ).toThrow(/KEYRING_SESSION_SIGNATURE_MODE/i);
+  });
+
+  it("requires DFNS URL when dfns signer provider is enabled", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_SIGNER_PROVIDER: "dfns",
+      }),
+    ).toThrow(/KEYRING_DFNS_SIGNER_URL/i);
+  });
+
+  it("requires DFNS auth settings when dfns signer provider is enabled", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_SIGNER_PROVIDER: "dfns",
+        KEYRING_DFNS_SIGNER_URL: "https://dfns-signer.internal/sign",
+      }),
+    ).toThrow(/KEYRING_DFNS_AUTH_TOKEN/i);
+
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_SIGNER_PROVIDER: "dfns",
+        KEYRING_DFNS_SIGNER_URL: "https://dfns-signer.internal/sign",
+        KEYRING_DFNS_AUTH_TOKEN: "token",
+      }),
+    ).toThrow(/KEYRING_DFNS_USER_ACTION_SIGNATURE/i);
+  });
+
+  it("requires secure profile to use dfns-only without fallback", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_SECURITY_PROFILE: "secure",
+      }),
+    ).toThrow(/requires KEYRING_SIGNER_PROVIDER=dfns/i);
+
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        SESSION_PRIVATE_KEY: "0x1",
+        KEYRING_SECURITY_PROFILE: "secure",
+        KEYRING_SIGNER_PROVIDER: "dfns",
+        KEYRING_DFNS_SIGNER_URL: "https://dfns-signer.internal/sign",
+        KEYRING_DFNS_AUTH_TOKEN: "token",
+        KEYRING_DFNS_USER_ACTION_SIGNATURE: "user-action-signature",
+        KEYRING_SIGNER_FALLBACK_PROVIDER: "local",
+      }),
+    ).toThrow(/requires KEYRING_SIGNER_FALLBACK_PROVIDER=none/i);
   });
 
   it("rejects duplicate key ids", () => {
@@ -220,6 +288,27 @@ describe("config loading", () => {
     expect(cfg.KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION).toBe(true);
   });
 
+  it("accepts production secure profile with dfns signer without local-key override flag", () => {
+    const cfg = loadConfig({
+      ...baseEnv(),
+      NODE_ENV: "production",
+      SESSION_PRIVATE_KEY: "0x1",
+      KEYRING_TRANSPORT: "https",
+      KEYRING_TLS_CERT_PATH: "/tmp/server.crt",
+      KEYRING_TLS_KEY_PATH: "/tmp/server.key",
+      KEYRING_TLS_CA_PATH: "/tmp/ca.crt",
+      KEYRING_MTLS_REQUIRED: "true",
+      KEYRING_SECURITY_PROFILE: "secure",
+      KEYRING_SIGNER_PROVIDER: "dfns",
+      KEYRING_DFNS_SIGNER_URL: "https://dfns-signer.internal/sign",
+      KEYRING_DFNS_AUTH_TOKEN: "token",
+      KEYRING_DFNS_USER_ACTION_SIGNATURE: "user-action-signature",
+    });
+
+    expect(cfg.KEYRING_SECURITY_PROFILE).toBe("secure");
+    expect(cfg.KEYRING_SIGNER_PROVIDER).toBe("dfns");
+  });
+
   it("requires rediss url in production when redis replay store is enabled", () => {
     expect(() =>
       loadConfig({
@@ -266,6 +355,7 @@ describe("config loading", () => {
         KEYRING_TLS_KEY_PATH: "/tmp/server.key",
         KEYRING_TLS_CA_PATH: "/tmp/ca.crt",
         KEYRING_MTLS_REQUIRED: "true",
+        KEYRING_SIGNER_PROVIDER: "local",
       }),
     ).toThrow(/KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION=true/i);
   });

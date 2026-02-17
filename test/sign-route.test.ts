@@ -1,9 +1,10 @@
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ec, hash } from "starknet";
 import { createApp } from "../src/app.js";
 import { buildSigningPayload, computeHmacHex } from "../src/auth/hmac.js";
 import type { AppConfig } from "../src/config.js";
+import { SessionTransactionSigner } from "../src/signer/sessionSigner.js";
 
 const baseConfig: AppConfig = {
   NODE_ENV: "test",
@@ -38,6 +39,12 @@ const baseConfig: AppConfig = {
   KEYRING_REDIS_RATE_LIMIT_PREFIX: "starknet-keyring-proxy:ratelimit:",
   KEYRING_LEAK_SCANNER_ENABLED: false,
   KEYRING_LEAK_SCANNER_ACTION: "block",
+  KEYRING_ALLOW_INSECURE_IN_PROCESS_KEYS_IN_PRODUCTION: false,
+  KEYRING_SECURITY_PROFILE: "flex",
+  KEYRING_SIGNER_PROVIDER: "local",
+  KEYRING_SIGNER_FALLBACK_PROVIDER: "none",
+  KEYRING_DFNS_TIMEOUT_MS: 7000,
+  KEYRING_SESSION_SIGNATURE_MODE: "v2_snip12",
   KEYRING_DEFAULT_KEY_ID: "default",
   SIGNING_KEYS: [
     {
@@ -96,7 +103,38 @@ function authHeaders(
   };
 }
 
+function buildDfnsSignatureResponse(
+  bodyRequest: typeof validBody,
+  privateKey: string,
+  overrides?: Partial<{
+    domainHash: string;
+    messageHash: string;
+  }>,
+) {
+  const signer = new SessionTransactionSigner(
+    [{ keyId: "default", privateKey, publicKey: undefined }],
+    "default",
+    new Map(),
+    new Map(),
+    { maxValidityWindowSec: 24 * 60 * 60, allowedChainIds: new Set() },
+  );
+  const signed = signer.sign(bodyRequest as any, "test-client");
+  return {
+    signatureMode: "v2_snip12" as const,
+    signatureKind: "Snip12" as const,
+    signerProvider: "dfns" as const,
+    sessionPublicKey: signed.sessionPublicKey,
+    domainHash: overrides?.domainHash ?? signed.domainHash,
+    messageHash: overrides?.messageHash ?? signed.messageHash,
+    signature: signed.signature,
+  };
+}
+
 describe("sign route", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("serves unauthenticated health without stack fingerprinting", async () => {
     const app = createApp(baseConfig);
     const res = await request(app).get("/health");
@@ -146,11 +184,84 @@ describe("sign route", () => {
     expect(Array.isArray(res.body.signature)).toBe(true);
     expect(res.body.signature.length).toBe(4);
     expect(res.body.signatureMode).toBe("v2_snip12");
+    expect(res.body.signatureKind).toBe("Snip12");
+    expect(res.body.signerProvider).toBe("local");
     expect(typeof res.body.domainHash).toBe("string");
     expect(/^0x[0-9a-f]+$/i.test(res.body.domainHash)).toBe(true);
     expect(typeof res.body.messageHash).toBe("string");
     expect(/^0x[0-9a-f]+$/i.test(res.body.messageHash)).toBe(true);
     expect(res.body.sessionPublicKey).toBe(ec.starkCurve.getStarkKey("0x1"));
+  });
+
+  it("accepts dfns signer responses only when hashes match the request payload", async () => {
+    const fetchMock = vi.fn(async (_url: unknown, init: any) => {
+      const parsedBody = JSON.parse(String(init.body)) as {
+        request: typeof validBody;
+        kind: string;
+        signatureMode: string;
+      };
+      expect(parsedBody.kind).toBe("Snip12");
+      expect(parsedBody.signatureMode).toBe("v2_snip12");
+      return {
+        ok: true,
+        json: async () => buildDfnsSignatureResponse(parsedBody.request, "0x1"),
+      } as any;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const app = createApp({
+      ...baseConfig,
+      KEYRING_SIGNER_PROVIDER: "dfns",
+      KEYRING_SIGNER_FALLBACK_PROVIDER: "none",
+      KEYRING_DFNS_SIGNER_URL: "https://dfns-signer.internal/sign",
+      KEYRING_DFNS_AUTH_TOKEN: "dfns-auth-token",
+      KEYRING_DFNS_USER_ACTION_SIGNATURE: "dfns-useraction-signature",
+    });
+    const bodyRaw = JSON.stringify(validBody);
+    const res = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, "nonce-dfns-ok"))
+      .send(bodyRaw);
+
+    expect(res.status).toBe(200);
+    expect(res.body.signatureMode).toBe("v2_snip12");
+    expect(res.body.signatureKind).toBe("Snip12");
+    expect(res.body.signerProvider).toBe("dfns");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects dfns signer responses when domain/message hashes do not match request payload", async () => {
+    const fetchMock = vi.fn(async (_url: unknown, init: any) => {
+      const parsedBody = JSON.parse(String(init.body)) as {
+        request: typeof validBody;
+      };
+      return {
+        ok: true,
+        json: async () =>
+          buildDfnsSignatureResponse(parsedBody.request, "0x1", {
+            messageHash: "0x1234",
+          }),
+      } as any;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const app = createApp({
+      ...baseConfig,
+      KEYRING_SIGNER_PROVIDER: "dfns",
+      KEYRING_SIGNER_FALLBACK_PROVIDER: "none",
+      KEYRING_DFNS_SIGNER_URL: "https://dfns-signer.internal/sign",
+      KEYRING_DFNS_AUTH_TOKEN: "dfns-auth-token",
+      KEYRING_DFNS_USER_ACTION_SIGNATURE: "dfns-useraction-signature",
+    });
+    const bodyRaw = JSON.stringify(validBody);
+    const res = await request(app)
+      .post("/v1/sign/session-transaction")
+      .set(authHeaders(bodyRaw, "nonce-dfns-bad-hash"))
+      .send(bodyRaw);
+
+    expect(res.status).toBe(503);
+    expect(res.body.error).toBe("signer unavailable");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("supports explicit keyId while keeping same endpoint", async () => {

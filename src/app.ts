@@ -8,7 +8,7 @@ import { InMemoryNonceStore } from "./auth/nonceStore.js";
 import type { NonceStore } from "./auth/nonceStore.js";
 import { RedisNonceStore } from "./auth/redisNonceStore.js";
 import { createHmacMiddleware } from "./auth/middleware.js";
-import { SessionTransactionSigner } from "./signer/sessionSigner.js";
+import { createSessionSignerProvider } from "./signer/provider.js";
 import { healthRouter } from "./routes/health.js";
 import { signSessionRouter } from "./routes/signSessionTransaction.js";
 import { LeakScanner } from "./security/leakScanner.js";
@@ -136,16 +136,27 @@ export function createApp(config: AppConfig) {
     ]),
   );
   const allowedChainIds = new Set(config.KEYRING_ALLOWED_CHAIN_IDS.map(normalizeFelt));
-  const signer = new SessionTransactionSigner(
-    config.SIGNING_KEYS,
-    config.KEYRING_DEFAULT_KEY_ID,
+  const signer = createSessionSignerProvider({
+    config,
+    logger,
+    signingKeys: config.SIGNING_KEYS,
+    defaultKeyId: config.KEYRING_DEFAULT_KEY_ID,
     allowedKeyIdsByClient,
     allowedAccountsByClient,
-    {
+    signingPolicy: {
       maxValidityWindowSec: config.KEYRING_MAX_VALIDITY_WINDOW_SEC,
       allowedChainIds,
     },
-  );
+  });
+  logger.log({
+    level: "info",
+    event: "signer.provider_selected",
+    details: {
+      securityProfile: config.KEYRING_SECURITY_PROFILE,
+      provider: config.KEYRING_SIGNER_PROVIDER,
+      fallbackProvider: config.KEYRING_SIGNER_FALLBACK_PROVIDER,
+    },
+  });
 
   app.disable("x-powered-by");
   app.use(helmet());

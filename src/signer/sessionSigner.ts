@@ -1,23 +1,71 @@
-import { ec, hash, num, shortString } from "starknet";
+import { constants, ec, num, outsideExecution, typedData } from "starknet";
 import type { SignSessionTransactionRequest } from "../types/api.js";
 import { PolicyError, assertSigningPolicy, type SigningPolicyConfig } from "./policy.js";
 import type { SigningKeyConfig } from "../config.js";
 import { normalizeFelt } from "../utils/felt.js";
 
-const STARKNET_DOMAIN_TYPE_HASH_REV1 =
-  "0x1ff2f602e42168014d405a94f75e8a93d640751d71d16311266e140d8b0a210";
-const SESSION_DOMAIN_NAME = shortString.encodeShortString("Session.transaction");
-const STARKNET_MESSAGE_PREFIX = shortString.encodeShortString("StarkNet Message");
-const SESSION_DOMAIN_VERSION = num.toHex(2);
-const SNIP12_REVISION = num.toHex(1);
+const OUTSIDE_EXECUTION_VERSION_V2 = "2";
 
 export type SignatureResult = {
+  signerProvider: "local" | "dfns";
   sessionPublicKey: string;
   signatureMode: "v2_snip12";
+  signatureKind: "Snip12";
   domainHash: string;
   messageHash: string;
   signature: [string, string, string, string];
 };
+
+export type SessionSigningHashes = {
+  accountAddressHex: string;
+  validUntilHex: string;
+  domainHash: string;
+  messageHash: string;
+};
+
+export function computeSessionSigningHashes(
+  req: SignSessionTransactionRequest,
+  normalizedAccountAddress?: string,
+): SessionSigningHashes {
+  const accountAddressHex = num.toHex(BigInt(normalizedAccountAddress ?? normalizeFelt(req.accountAddress)));
+  const chainIdHex = num.toHex(BigInt(req.chainId));
+  const validUntilHex = num.toHex(req.validUntil);
+  const caller = req.caller
+    ? num.toHex(BigInt(req.caller))
+    : constants.OutsideExecutionCallerAny;
+  const executeAfter = req.executeAfter ? num.toHex(BigInt(req.executeAfter)) : 0;
+  const outsideTypedData = outsideExecution.getTypedData(
+    chainIdHex,
+    {
+      caller,
+      execute_after: executeAfter,
+      execute_before: req.validUntil,
+    },
+    req.nonce,
+    req.calls.map((call) => ({
+      contractAddress: call.contractAddress,
+      entrypoint: call.entrypoint,
+      calldata: call.calldata,
+    })),
+    OUTSIDE_EXECUTION_VERSION_V2,
+  );
+  const domainType = (outsideTypedData as { types: Record<string, unknown> }).types.StarknetDomain
+    ? "StarknetDomain"
+    : "StarkNetDomain";
+  const domainHash = typedData.getStructHash(
+    (outsideTypedData as { types: Record<string, unknown> }).types as never,
+    domainType,
+    (outsideTypedData as { domain: Record<string, unknown> }).domain as never,
+    (outsideTypedData as { domain?: { revision?: string } }).domain?.revision as never,
+  );
+  const messageHash = typedData.getMessageHash(outsideTypedData, accountAddressHex);
+  return {
+    accountAddressHex,
+    validUntilHex,
+    domainHash,
+    messageHash,
+  };
+}
 
 export class SessionTransactionSigner {
   readonly defaultKeyId: string;
@@ -75,46 +123,7 @@ export class SessionTransactionSigner {
       throw new PolicyError(`Unknown keyId: ${requestedKeyId}`);
     }
 
-    const accountAddressHex = num.toHex(BigInt(normalizedAccount));
-    const chainIdHex = num.toHex(BigInt(req.chainId));
-    const nonceHex = num.toHex(BigInt(req.nonce));
-    const validUntilHex = num.toHex(req.validUntil);
-
-    const hashData: string[] = [
-      accountAddressHex,
-      chainIdHex,
-      nonceHex,
-      validUntilHex,
-    ];
-
-    for (const call of req.calls) {
-      hashData.push(num.toHex(BigInt(call.contractAddress)));
-
-      const selector = call.entrypoint.startsWith("0x")
-        ? BigInt(call.entrypoint)
-        : BigInt(hash.getSelectorFromName(call.entrypoint));
-      hashData.push(num.toHex(selector));
-
-      hashData.push(num.toHex(call.calldata.length));
-      for (const d of call.calldata) {
-        hashData.push(num.toHex(BigInt(d)));
-      }
-    }
-
-    const payloadHash = hash.computePoseidonHashOnElements(hashData);
-    const domainHash = hash.computePoseidonHashOnElements([
-      STARKNET_DOMAIN_TYPE_HASH_REV1,
-      SESSION_DOMAIN_NAME,
-      SESSION_DOMAIN_VERSION,
-      chainIdHex,
-      SNIP12_REVISION,
-    ]);
-    const messageHash = hash.computePoseidonHashOnElements([
-      STARKNET_MESSAGE_PREFIX,
-      domainHash,
-      accountAddressHex,
-      payloadHash,
-    ]);
+    const { validUntilHex, domainHash, messageHash } = computeSessionSigningHashes(req, normalizedAccount);
     const rawSig = ec.starkCurve.sign(messageHash, key.privateKey);
 
     // Enforce canonical s (s <= n/2) to prevent signature malleability.
@@ -127,8 +136,10 @@ export class SessionTransactionSigner {
     const canonicalS = s > halfOrder ? CURVE_ORDER - s : s;
 
     return {
+      signerProvider: "local",
       sessionPublicKey: key.sessionPublicKey,
       signatureMode: "v2_snip12",
+      signatureKind: "Snip12",
       domainHash,
       messageHash,
       signature: [
