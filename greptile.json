@@ -1,9 +1,12 @@
 {
   "reviewProfile": "security-focused",
+  "strictness": 2,
   "focus": [
     "security",
     "cross-repo-compatibility",
-    "architecture"
+    "architecture",
+    "key-isolation",
+    "replay-protection"
   ],
   "patternRepositories": [
     "keep-starknet-strange/starkclaw",
@@ -13,7 +16,57 @@
     "include": [
       "src/**",
       "docs/**",
+      "spec/**",
+      "security/**",
+      "test/**",
+      "scripts/**",
       ".github/workflows/**"
     ]
-  }
+  },
+  "rules": [
+    {
+      "scope": "src/signer/**",
+      "instructions": "This is the core signing boundary. Every change MUST be reviewed for: key material exposure, SNIP-12 envelope correctness, signature mode validation (v2_snip12 only), signer provider verification (local|dfns), and constant-time comparison for cryptographic values. Reject any PR that weakens signer isolation or introduces unvalidated signing paths."
+    },
+    {
+      "scope": "src/auth/**",
+      "instructions": "Authentication is the trust root. Verify HMAC correctness, nonce/timestamp validation windows, replay protection mechanisms, session token binding, and fail-closed behavior on any auth error. No silent fallbacks or permissive defaults."
+    },
+    {
+      "scope": "src/transport/**",
+      "instructions": "Transport layer handles mTLS and HTTPS. Verify certificate pinning, TLS version enforcement, no HTTP fallback, proper error propagation without leaking internal state, and timeout handling. Flag any cleartext communication paths."
+    },
+    {
+      "scope": "src/security/**",
+      "instructions": "Security module changes require explicit threat model justification. Verify rate limiting, input sanitization, audit log completeness, and that no security control can be bypassed by parameter manipulation."
+    },
+    {
+      "scope": "src/routes/**",
+      "instructions": "API routes are the external attack surface. Enforce strict schema validation on all inputs, verify authentication middleware is applied to every endpoint, check for IDOR vulnerabilities, and ensure error responses do not leak internal state."
+    },
+    {
+      "scope": "src/audit/**",
+      "instructions": "Audit subsystem must maintain tamper-evident logging. Verify log integrity, ensure all security-relevant events are captured, check that sensitive data is redacted from logs, and that audit trail cannot be silently disabled."
+    },
+    {
+      "scope": "src/types/**",
+      "instructions": "Type definitions enforce compile-time safety. Verify that security-critical fields use branded/opaque types, that optional fields have explicit defaults, and that type changes do not silently widen accepted inputs in security paths."
+    },
+    {
+      "scope": "src/utils/**",
+      "instructions": "Utility functions used across security boundaries. Verify hex validation is strict (no 0x prefix ambiguity), constant-time comparisons for secrets, no eval or dynamic code execution, and that error messages do not leak sensitive context."
+    },
+    {
+      "scope": "spec/**",
+      "instructions": "Specification changes affect the contract between SISNA, starkclaw, and starknet-agentic. Flag any breaking changes to API spec, session envelope format, or SNIP-12 schema. Require explicit cross-repo compatibility notes."
+    },
+    {
+      "scope": "test/**",
+      "instructions": "Tests must cover security boundaries. Verify negative test cases for auth bypass, replay attacks, malformed signatures, and boundary violations. Flag any test that mocks away security controls or uses permissive matchers on security-critical assertions."
+    },
+    {
+      "scope": ".github/workflows/**",
+      "instructions": "CI/CD changes require least-privilege verification. Check for secret exposure in logs, verify pinned action versions (no @main refs), ensure no workflow_dispatch without proper authorization, and validate that security scanning steps cannot be skipped."
+    }
+  ]
 }
