@@ -10,23 +10,101 @@ reviews:
   collapse_walkthrough: true
   poem: false
   fail_commit_status: true
+  sequence_diagrams: true
   auto_review:
     enabled: true
     drafts: false
+    base_branches:
+      - main
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+  auto_incremental_review: true
 
   path_instructions:
-    - path: "src/**"
+    - path: "src/signer/**"
       instructions: |
-        Treat auth, policy, signer, and transport changes as security-critical boundary code.
-        Verify replay protection, HMAC correctness, nonce/timestamp validation, strict schema
-        validation, and no secret leakage in logs or error messages.
-    - path: "docs/api-spec.yaml"
+        CRITICAL SIGNING BOUNDARY. This is the most security-sensitive code in SISNA.
+        Verify: key material never exposed outside signer module, SNIP-12 envelope
+        correctness (signatureMode===v2_snip12, signatureKind===Snip12), signerProvider
+        validation (local|dfns only), constant-time comparison for all cryptographic
+        values, no signing path reachable without full auth chain. Reject any PR that
+        weakens key isolation or introduces unvalidated signing paths.
+    - path: "src/auth/**"
       instructions: |
-        API spec changes must preserve compatibility assumptions used by starkclaw signer client
-        and starknet-agentic session envelope semantics. Flag undocumented contract changes.
+        Authentication trust root. Verify HMAC correctness with constant-time comparison,
+        nonce uniqueness and timestamp validation windows, replay protection mechanisms,
+        session token binding to specific signing contexts, fail-closed behavior on ANY
+        auth error. No silent fallbacks, no permissive defaults, no auth bypass paths.
+    - path: "src/transport/**"
+      instructions: |
+        Transport security layer (mTLS/HTTPS). Verify certificate pinning enforcement,
+        TLS 1.3 minimum version, NO HTTP fallback under any condition, proper error
+        propagation without leaking internal state or stack traces, connection timeout
+        handling, and that no cleartext communication path exists even in dev/test modes.
+    - path: "src/security/**"
+      instructions: |
+        Security control module. Changes require explicit threat model justification.
+        Verify rate limiting cannot be bypassed, input sanitization covers all entry
+        points, audit log captures every security-relevant event, no security control
+        can be disabled by parameter manipulation or environment variable.
+    - path: "src/routes/**"
+      instructions: |
+        External API attack surface. Enforce strict schema validation on ALL request
+        inputs (body, query, headers), verify authentication middleware on every endpoint
+        with no exceptions, check for IDOR and parameter pollution vulnerabilities,
+        ensure error responses use generic messages without internal state leakage.
+    - path: "src/audit/**"
+      instructions: |
+        Tamper-evident audit subsystem. Verify log integrity mechanisms, ensure ALL
+        security events are captured (auth attempts, signing requests, policy decisions),
+        sensitive data (keys, tokens, signatures) MUST be redacted from logs, audit
+        trail cannot be silently disabled or truncated.
+    - path: "src/types/**"
+      instructions: |
+        Type definitions enforce compile-time safety contracts. Verify security-critical
+        fields use branded/opaque types, optional fields have explicit safe defaults,
+        type changes do not silently widen accepted inputs in security paths, and that
+        runtime type guards match compile-time constraints exactly.
+    - path: "src/utils/**"
+      instructions: |
+        Cross-boundary utility functions. Verify hex validation is strict (reject 0x
+        prefix ambiguity), all secret comparisons use constant-time functions, no eval
+        or dynamic code execution, error messages never leak sensitive context (keys,
+        tokens, internal paths).
+    - path: "spec/**"
+      instructions: |
+        Specification changes affect the tri-repo contract (SISNA <-> starkclaw <->
+        starknet-agentic). Flag ANY breaking change to API spec, session envelope format,
+        or SNIP-12 schema. Require explicit cross-repo compatibility notes and migration
+        plan for downstream consumers.
+    - path: "test/**"
+      instructions: |
+        Security boundary tests. Verify negative test cases exist for: auth bypass
+        attempts, replay attacks, malformed/truncated signatures, boundary violations,
+        and privilege escalation. Flag any test that mocks away security controls or
+        uses permissive matchers (e.g. expect.anything()) on security-critical assertions.
+    - path: "docs/**"
+      instructions: |
+        Documentation must accurately reflect current security boundaries, API contracts,
+        and deployment requirements. Flag any doc change that contradicts code behavior
+        or omits security-relevant configuration steps.
     - path: ".github/workflows/**"
       instructions: |
-        Check least privilege permissions and safe CI execution practices.
+        CI/CD security. Verify least-privilege permissions on every job, pinned action
+        versions (SHA, never @main), no secret exposure in logs or artifacts, no
+        workflow_dispatch without proper authorization guards, security scanning steps
+        (gitleaks, opengrep) cannot be skipped or made non-blocking.
+    - path: "scripts/**"
+      instructions: |
+        Operational scripts. Verify no hardcoded secrets or credentials, proper error
+        handling that does not leak sensitive output, input validation on all parameters,
+        and that scripts cannot be used to bypass security controls.
+    - path: "security/**"
+      instructions: |
+        Security policy and configuration. Changes must be reviewed for completeness,
+        verify threat model coverage, ensure no security requirement is weakened or
+        removed without explicit justification and replacement.
 
   pre_merge_checks:
     custom_checks:
@@ -34,18 +112,47 @@ reviews:
         mode: error
         instructions: |
           If this PR changes src/**, docs/api-spec.yaml, docs/**, or .github/workflows/**,
-          the PR description must include "Spec impact" with either "none" or explicit
-          compatibility/migration notes.
+          the PR description MUST include a "Spec impact" section with either "none" or
+          explicit compatibility/migration notes for downstream consumers.
       - name: "Cross-repo boundary awareness"
         mode: error
         instructions: |
-          For boundary changes, the PR description must acknowledge impacted counterpart repos:
+          For ANY boundary change (auth, signer, transport, routes, types), the PR
+          description MUST acknowledge impacted counterpart repos:
           keep-starknet-strange/starkclaw and keep-starknet-strange/starknet-agentic.
+          Missing cross-repo acknowledgment is a blocking error.
       - name: "Security rationale for signer boundary"
+        mode: error
+        instructions: |
+          For changes to src/auth/**, src/signer/**, src/transport/**, src/security/**,
+          or src/routes/**, require a concise security rationale section in the PR
+          description covering: threat model impact, attack surface change, and
+          whether the change maintains fail-closed behavior.
+      - name: "Key isolation invariant"
+        mode: error
+        instructions: |
+          Any change that touches src/signer/** MUST explicitly confirm that key material
+          remains isolated within the signer module boundary. If key material flows
+          outside the signer module (even for logging or debugging), this is a blocking
+          error requiring security team sign-off.
+      - name: "Test coverage for security paths"
         mode: warning
         instructions: |
-          For changes to auth/policy/signer/transport paths, require a concise security rationale
-          and expected threat-model impact.
+          PRs that modify src/auth/**, src/signer/**, src/security/**, or src/transport/**
+          SHOULD include corresponding test changes in test/**. Flag PRs that modify
+          security-critical code without adding or updating tests.
+      - name: "No secret leakage"
+        mode: error
+        instructions: |
+          Verify no PR introduces logging, error messages, or debug output that could
+          leak: private keys, HMAC secrets, session tokens, API keys, or internal
+          infrastructure details. Check both code and test fixtures.
+
+  tools:
+    opengrep:
+      enabled: true
+    trufflehog:
+      enabled: true
 
 chat:
   auto_reply: false
